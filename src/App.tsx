@@ -374,12 +374,30 @@ export default function App() {
   const activeLocation = state.locations[state.activeLocationIndex];
 
   // Push Notification Helper
-  const sendNotification = (title: string, body: string) => {
+  const sendNotification = async (title: string, body: string, icon: string = '/favicon.ico') => {
     if (!state.settings.hapticEnabled) return; // Respect global haptic/alert setting
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(title, { body, icon: '/favicon.ico' });
-    }
     hapticFeedback('warning', state.settings.hapticEnabled);
+
+    if (!("Notification" in window)) return;
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") return;
+
+      // Use ServiceWorker if available (required on Vercel/HTTPS)
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.ready.catch(() => null);
+        if (reg) {
+          reg.showNotification(title, { body, icon });
+          return;
+        }
+      }
+
+      // Fallback for local/AI Studio preview only
+      new Notification(title, { body, icon });
+    } catch (e) {
+      console.warn("Notification failed:", e);
+    }
   };
 
   useEffect(() => {
@@ -471,7 +489,7 @@ export default function App() {
     };
 
     if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
+      Notification.requestPermission().catch(() => {});
     }
     const interval = setInterval(checkNotification, 60000); 
     return () => clearInterval(interval);

@@ -2,17 +2,17 @@ import React, { ErrorInfo, ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { RawIcons } from './WeatherIcons';
 
-export class ErrorBoundary extends React.Component<any, any> {
-  state: { hasError: boolean } = { hasError: false };
+export class ErrorBoundary extends React.Component<any, { hasError: boolean, error: Error | null }> {
+  state = { hasError: false, error: null };
   props: any;
 
   constructor(props: any) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, error: null };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -33,6 +33,18 @@ export class ErrorBoundary extends React.Component<any, any> {
             </div>
             <div className="flex flex-col gap-2">
               <h1 className="text-xl font-bold text-white uppercase tracking-widest">Interface Failed</h1>
+              
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 my-2 overflow-hidden max-w-sm mx-auto">
+                <p className="text-[#ff6b6b] text-xs font-mono break-words">
+                  {this.state.error?.message || String(this.state.error) || "Unknown error"}
+                </p>
+                {this.state.error?.stack && (
+                  <pre className="text-white/20 text-[10px] mt-2 text-left overflow-auto max-h-32 no-scrollbar font-mono leading-tight">
+                    {this.state.error.stack}
+                  </pre>
+                )}
+              </div>
+
               <p className="text-white/40 text-sm max-w-xs mx-auto">
                 A rendering error occurred. The application is trying to recover.
               </p>

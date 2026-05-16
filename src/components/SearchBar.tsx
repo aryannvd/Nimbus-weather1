@@ -5,7 +5,7 @@ import { Location } from '../types';
 import debounce from 'lodash.debounce';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, GLASS_STYLE } from '../lib/utils';
-import { hapticFeedback } from '../lib/haptics';
+import { Haptic } from '../lib/haptics';
 
 interface SearchBarProps {
   onSelect: (location: Location) => void;
@@ -74,7 +74,7 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
             {query && (
               <button 
                 onClick={() => { 
-                  hapticFeedback('subtle', hapticEnabled);
+                  Haptic.light(hapticEnabled);
                   setQuery(''); 
                   setResults([]); 
                 }} 
@@ -86,7 +86,7 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
           </div>
           <button 
             onClick={() => {
-              hapticFeedback('subtle', hapticEnabled);
+              Haptic.light(hapticEnabled);
               onClose();
             }}
             className="text-[17px] font-medium text-app-text-dim hover:text-app-text transition-colors"
@@ -108,7 +108,7 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
                 <button
                   key={loc.id}
                   onClick={() => {
-                    hapticFeedback('success', hapticEnabled);
+                    Haptic.success(hapticEnabled);
                     onSelect(loc);
                   }}
                   className="w-full flex items-center gap-4 p-4 text-left active:bg-app-text/5 bg-app-surface border border-app-border rounded-2xl transition-all"

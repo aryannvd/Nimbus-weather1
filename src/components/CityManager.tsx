@@ -3,7 +3,7 @@ import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { Icons, WeatherIcon } from './WeatherIcons';
 import { Location, WeatherData } from '../types';
 import { cn, GLASS_STYLE_SUBTLE } from '../lib/utils';
-import { hapticFeedback } from '../lib/haptics';
+import { Haptic } from '../lib/haptics';
 import { getWeatherInfo } from '../services/weatherService';
 
 interface CityManagerProps {
@@ -32,7 +32,7 @@ const CityManager = ({
 
   const handleRemove = (e: React.MouseEvent, index: number) => {
     e.stopPropagation();
-    hapticFeedback('warning', hapticEnabled);
+    Haptic.warning(hapticEnabled);
     onRemove(index);
   };
 
@@ -49,7 +49,7 @@ const CityManager = ({
           <h1 className="text-[34px] font-bold text-white tracking-tight">Weather</h1>
           <button 
             onClick={() => {
-              hapticFeedback('subtle', hapticEnabled);
+              Haptic.light(hapticEnabled);
               onClose();
             }}
             className="w-10 h-10 bg-white/5 border border-white/10 rounded-full flex items-center justify-center text-white/60 hover:text-white transition-colors"
@@ -76,7 +76,7 @@ const CityManager = ({
               >
                 <motion.div
                   onClick={() => {
-                    hapticFeedback('subtle', hapticEnabled);
+                    Haptic.light(hapticEnabled);
                     onSelect(i);
                   }}
                   className={cn(
@@ -128,7 +128,7 @@ const CityManager = ({
 
         <button 
           onClick={() => {
-            hapticFeedback('medium', hapticEnabled);
+            Haptic.medium(hapticEnabled);
             onAdd();
           }}
           className="w-full mt-6 py-5 bg-white/10 border border-dashed border-white/20 rounded-[28px] flex items-center justify-center gap-3 text-white active:scale-95 transition-all text-[15px] font-medium"

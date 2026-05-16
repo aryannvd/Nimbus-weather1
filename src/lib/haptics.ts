@@ -1,51 +1,60 @@
 
 /**
- * Triggers a subtle haptic feedback using the Vibration API.
- * 
- * Pattern details:
- * - subtle: brief 10ms tap
- * - medium: 30ms tap
- * - warning: two short pulses
- * - success: one medium pulse
+ * Robust Haptic Feedback Implementation
+ * Fixes issues on Android/Vercel by unlocking vibration on user interaction.
  */
-export const hapticFeedback = (
-  type: 'subtle' | 'medium' | 'warning' | 'success' | 'error' = 'subtle',
-  enabled: boolean = true
-) => {
-  if (!enabled || typeof window === 'undefined' || !window.navigator.vibrate) {
-    if (!enabled) return;
-    // Attempting a fallback for environments that might have restricted vibrate
-    return;
-  }
 
-  try {
-    // Log to console to help verify it is firing in environments with restricted physical haptics
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[Haptics] Triggering ${type}`);
+let unlocked = false;
+
+if (typeof window !== 'undefined') {
+  // Unlock vibration on first user touch - required for many mobile browsers
+  const unlock = () => {
+    if (!unlocked && navigator.vibrate) {
+      try {
+        navigator.vibrate(1); // silent 1ms wake-up
+        unlocked = true;
+        // console.log("[Haptics] Unlocked");
+        window.removeEventListener('pointerdown', unlock);
+        window.removeEventListener('touchstart', unlock);
+      } catch (e) {
+        console.warn("[Haptics] Unlock failed:", e);
+      }
     }
-    
-    switch (type) {
-      case 'subtle':
-        window.navigator.vibrate(12);
-        break;
-      case 'medium':
-        window.navigator.vibrate(35);
-        break;
-      case 'warning':
-        // Two short pulses as requested (40ms pulse, 60ms gap, 40ms pulse)
-        window.navigator.vibrate([45, 65, 45]);
-        break;
-      case 'success':
-        window.navigator.vibrate(70);
-        break;
-      case 'error':
-        // Stronger warning for errors (100ms)
-        window.navigator.vibrate([100, 50, 100]);
-        break;
-      default:
-        window.navigator.vibrate(15);
-    }
-  } catch (err) {
-    console.warn('Haptic feedback attempted but failed:', err);
-  }
+  };
+
+  window.addEventListener("pointerdown", unlock, { passive: true });
+  window.addEventListener("touchstart", unlock, { passive: true });
+}
+
+export const Haptic = {
+  light:   (enabled: boolean = true) => {
+    if (!enabled || typeof navigator === 'undefined') return;
+    navigator.vibrate?.([10]);
+    // console.log("[Haptics] light");
+  },
+  medium:  (enabled: boolean = true) => {
+    if (!enabled || typeof navigator === 'undefined') return;
+    navigator.vibrate?.([30]);
+    // console.log("[Haptics] medium");
+  },
+  heavy:   (enabled: boolean = true) => {
+    if (!enabled || typeof navigator === 'undefined') return;
+    navigator.vibrate?.([60]);
+    // console.log("[Haptics] heavy");
+  },
+  success: (enabled: boolean = true) => {
+    if (!enabled || typeof navigator === 'undefined') return;
+    navigator.vibrate?.([10, 50, 10]);
+    // console.log("[Haptics] success");
+  },
+  error:   (enabled: boolean = true) => {
+    if (!enabled || typeof navigator === 'undefined') return;
+    navigator.vibrate?.([60, 50, 60]);
+    // console.log("[Haptics] error");
+  },
+  warning: (enabled: boolean = true) => {
+    if (!enabled || typeof navigator === 'undefined') return;
+    navigator.vibrate?.([30, 50, 30]);
+    // console.log("[Haptics] warning");
+  },
 };

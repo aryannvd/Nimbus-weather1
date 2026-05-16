@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Icons, WeatherIcon } from './WeatherIcons';
 import { Settings, WeatherData, Location } from '../types';
 import { cn, GLASS_STYLE_SUBTLE } from '../lib/utils';
-import { hapticFeedback } from '../lib/haptics';
+import { Haptic } from '../lib/haptics';
 import WidgetView from './WidgetView';
 
 interface SettingsScreenProps {
@@ -32,7 +32,7 @@ const ToggleRow = ({ label, description, value, onToggle, hapticEnabled }: { lab
     <button 
       type="button"
       onClick={() => {
-        hapticFeedback('medium', hapticEnabled);
+        Haptic.medium(hapticEnabled);
         onToggle();
       }}
       className={cn(
@@ -61,7 +61,7 @@ const SegmentedControl = ({ value, options, onChange, hapticEnabled }: { value: 
           key={opt.value}
           onClick={() => {
             if (!isSelected) {
-              hapticFeedback('subtle', hapticEnabled);
+              Haptic.light(hapticEnabled);
               onChange(opt.value);
             }
           }}
@@ -97,7 +97,7 @@ const SelectRow = ({ label, value, options, onChange, hapticEnabled }: { label: 
 const LinkRow = ({ label, value, onClick, hapticEnabled }: { label: string; value?: string; onClick?: () => void; hapticEnabled?: boolean }) => (
   <button 
     onClick={() => {
-      if (hapticEnabled !== undefined) hapticFeedback('medium', hapticEnabled);
+      if (hapticEnabled !== undefined) Haptic.medium(hapticEnabled);
       onClick?.();
     }} 
     className="w-full p-4 flex items-center justify-between text-left active:bg-app-text/5 transition-colors"
@@ -133,7 +133,7 @@ const NumberInput = ({
         onChange={(e) => {
           const val = parseInt(e.target.value);
           if (!isNaN(val)) {
-            hapticFeedback('subtle', hapticEnabled);
+            Haptic.light(hapticEnabled);
             onChange(Math.max(min, Math.min(max, val)));
           }
         }}
@@ -147,7 +147,7 @@ const NumberInput = ({
     <div className="flex gap-1">
       <button 
         onClick={() => {
-          hapticFeedback('subtle', hapticEnabled);
+          Haptic.light(hapticEnabled);
           onChange(Math.max(min, value - 5));
         }}
         className="w-12 h-12 rounded-xl bg-app-text/5 border border-app-border flex items-center justify-center text-app-text active:scale-90 transition-all"
@@ -156,7 +156,7 @@ const NumberInput = ({
       </button>
       <button 
         onClick={() => {
-          hapticFeedback('subtle', hapticEnabled);
+          Haptic.light(hapticEnabled);
           onChange(Math.min(max, value + 5));
         }}
         className="w-12 h-12 rounded-xl bg-app-text/5 border border-app-border flex items-center justify-center text-app-text active:scale-90 transition-all"
@@ -223,7 +223,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
     const handleSwipeLeft = () => {
       if (showAbout || showWidgetSetup || activeSubView !== 'none') return;
       // Increase thresholds
-      hapticFeedback('medium', localSettings.hapticEnabled);
+      Haptic.medium(localSettings.hapticEnabled);
       const newRain = Math.min(100, localSettings.rainThreshold + 5);
       const newSnow = Math.min(100, localSettings.snowThreshold + 5);
       const updated = { ...localSettings, rainThreshold: newRain, snowThreshold: newSnow };
@@ -234,7 +234,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
     const handleSwipeRight = () => {
       if (showAbout || showWidgetSetup || activeSubView !== 'none') return;
       // Decrease thresholds
-      hapticFeedback('medium', localSettings.hapticEnabled);
+      Haptic.medium(localSettings.hapticEnabled);
       const newRain = Math.max(0, localSettings.rainThreshold - 5);
       const newSnow = Math.max(0, localSettings.snowThreshold - 5);
       const updated = { ...localSettings, rainThreshold: newRain, snowThreshold: newSnow };
@@ -253,7 +253,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
   const updateSetting = <T extends keyof Settings>(key: T, value: Settings[T]) => {
     const newSettings = { ...localSettings, [key]: value };
     setLocalSettings(newSettings);
-    hapticFeedback('subtle', localSettings.hapticEnabled);
+    Haptic.light(localSettings.hapticEnabled);
     onUpdate(newSettings);
   };
 
@@ -267,7 +267,10 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
       <div className="max-w-[390px] mx-auto min-h-full flex flex-col">
         <header className="flex items-center justify-between mb-10">
           <h2 className="text-2xl font-bold text-app-text">{title}</h2>
-          <button onClick={onClose} className="w-10 h-10 rounded-full bg-app-text/5 flex items-center justify-center text-app-text">
+          <button onClick={() => {
+            Haptic.light(localSettings.hapticEnabled);
+            onClose();
+          }} className="w-10 h-10 rounded-full bg-app-text/5 flex items-center justify-center text-app-text">
             <Icons.X className="w-6 h-6" />
           </button>
         </header>
@@ -303,7 +306,10 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
         <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-16 pb-24 flex flex-col items-center">
           <header className="w-full flex items-center mb-12">
             <button 
-              onClick={() => setShowWidgetSetup(false)}
+              onClick={() => {
+                Haptic.light(localSettings.hapticEnabled);
+                setShowWidgetSetup(false);
+              }}
               className="w-10 h-10 rounded-full bg-app-text/5 flex items-center justify-center text-app-text"
             >
               <Icons.ChevronLeft className="w-6 h-6" />
@@ -344,7 +350,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
           <header className="flex items-center mb-16 px-1">
              <button 
               onClick={() => {
-                hapticFeedback('subtle', localSettings.hapticEnabled);
+                Haptic.light(localSettings.hapticEnabled);
                 setShowAbout(false);
               }}
               className="flex items-center text-app-text"
@@ -487,7 +493,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
                 <button
                   key={t.id}
                   onClick={() => {
-                    hapticFeedback('medium', localSettings.hapticEnabled);
+                    Haptic.medium(localSettings.hapticEnabled);
                     updateSetting('theme', t.id as any);
                   }}
                   className={cn(
@@ -507,7 +513,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
               type="button"
               onClick={(e) => {
                 e.preventDefault();
-                hapticFeedback('medium', localSettings.hapticEnabled);
+                Haptic.medium(localSettings.hapticEnabled);
                 updateSetting('iconStyle', 'outline');
               }}
               className="flex flex-col items-center gap-4 transition-all duration-300 group touch-manipulation"
@@ -528,7 +534,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
               type="button"
               onClick={(e) => {
                 e.preventDefault();
-                hapticFeedback('medium', localSettings.hapticEnabled);
+                Haptic.medium(localSettings.hapticEnabled);
                 updateSetting('iconStyle', 'coloured');
               }}
               className="flex flex-col items-center gap-4 transition-all duration-300 group touch-manipulation"

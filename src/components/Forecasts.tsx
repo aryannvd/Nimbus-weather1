@@ -6,7 +6,7 @@ import { motion } from 'motion/react';
 import { format, parseISO } from 'date-fns';
 import { cn, GLASS_STYLE_SUBTLE } from '../lib/utils';
 
-import { hapticFeedback } from '../lib/haptics';
+import { Haptic } from '../lib/haptics';
 
 interface ForecastProps {
   weather: WeatherData;
@@ -22,7 +22,7 @@ export function HourlyForecast({ weather, settings }: ForecastProps) {
     const current = scrollRef.current.scrollLeft;
     // Trigger haptic every 64px (width of one card)
     if (Math.abs(current - lastScrollPos.current) > 64) {
-      hapticFeedback('subtle', settings.hapticEnabled);
+      Haptic.light(settings.hapticEnabled);
       lastScrollPos.current = current;
     }
   };

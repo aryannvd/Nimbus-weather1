@@ -7,6 +7,13 @@ const STORAGE_KEYS = {
   WEATHER_CACHE: 'app_weather_cache', // Record<locationId_or_name, { data: WeatherData, ts: number }>
 };
 
+export function getCityKey(location: Location): string {
+  if (!location) return 'unknown';
+  return `${location.name}_${location.latitude.toFixed(2)}_${location.longitude.toFixed(2)}`
+    .replace(/\s+/g, "_")
+    .toLowerCase();
+}
+
 export function saveWeatherData(locationKey: string, data: WeatherData) {
   try {
     const cacheRaw = localStorage.getItem(STORAGE_KEYS.WEATHER_CACHE);
@@ -18,14 +25,14 @@ export function saveWeatherData(locationKey: string, data: WeatherData) {
   }
 }
 
-export function getCachedWeatherData(locationKey: string): WeatherData | null {
+export function getCachedWeatherData(locationKey: string): { data: WeatherData; ts: number } | null {
   try {
     const cacheRaw = localStorage.getItem(STORAGE_KEYS.WEATHER_CACHE);
     if (!cacheRaw) return null;
     const cache = JSON.parse(cacheRaw);
     const cached = cache[locationKey];
-    if (!cached) return null;
-    return cached.data;
+    if (!cached || !cached.data) return null;
+    return cached;
   } catch {
     return null;
   }

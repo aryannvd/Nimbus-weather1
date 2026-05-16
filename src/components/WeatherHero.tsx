@@ -6,7 +6,7 @@ import { motion } from 'motion/react';
 import { format, parseISO } from 'date-fns';
 import { RawIcons } from './WeatherIcons';
 import { cn } from '../lib/utils';
-import { hapticFeedback } from '../lib/haptics';
+import { Haptic } from '../lib/haptics';
 
 interface WeatherHeroProps {
   weather: WeatherData;
@@ -79,7 +79,7 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
             {onRefresh && (
               <motion.button
                 onClick={() => {
-                  hapticFeedback('medium', settings.hapticEnabled);
+                  Haptic.medium(settings.hapticEnabled);
                   onRefresh();
                 }}
                 initial={{ opacity: 0, scale: 0.8 }}

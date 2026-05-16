@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Location, WeatherData, WeatherState, Settings } from './types';
 import { fetchWeather, fetchWeatherBulk } from './services/weatherService';
-import { getCachedWeatherData, saveWeatherData, STORAGE_KEYS } from './lib/storage';
+import { getCachedWeatherData, saveWeatherData, STORAGE_KEYS, getCityKey } from './lib/storage';
 import { initGestures } from './lib/gestures';
 import WeatherSkeleton from './components/WeatherSkeleton';
 import AtmosphereFX from './components/AtmosphereFX';
@@ -16,7 +16,7 @@ import { cn } from './lib/utils';
 import SettingsScreen from './components/SettingsScreen';
 import CityManager from './components/CityManager';
 import AlertsDisplay from './components/AlertsDisplay';
-import { hapticFeedback } from './lib/haptics';
+import { Haptic } from './lib/haptics';
 import { format } from 'date-fns';
 import WidgetView from './components/WidgetView';
 
@@ -75,16 +75,78 @@ export default function App() {
       console.warn('Failed to parse cached weather data', e);
     }
     
+    const initialLocations: Location[] = cachedLocations || [];
+    const initialIndex = cachedIndex || 0;
+    const initialWeatherData: Record<number, WeatherData> = {};
+    
+    // Attempt absolute zero-lag hydration of weather data from cache
+    if (initialLocations.length > 0) {
+      try {
+        initialLocations.forEach((loc, idx) => {
+          const cached = getCachedWeatherData(getCityKey(loc));
+          if (cached && cached.data) {
+            initialWeatherData[idx] = cached.data;
+          }
+        });
+      } catch (e) {
+        console.warn('Failed to hydrate weather data from cache', e);
+      }
+    }
+
     return {
-      locations: cachedLocations || [],
-      activeLocationIndex: cachedIndex || 0,
-      weatherData: {},
-      loading: true,
+      locations: initialLocations,
+      activeLocationIndex: initialIndex,
+      weatherData: initialWeatherData,
+      loading: initialLocations.length > 0 && initialWeatherData[initialIndex] ? false : true,
       error: null,
       showSettings: false,
       settings: cachedSettings || INITIAL_SETTINGS
     };
   });
+
+  // Consolidated startup logic: Hydrate and background refresh
+  useEffect(() => {
+    const startup = async () => {
+      if (state.locations.length === 0) {
+        // Handle new user / first launch logic
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+              let timezone = 'UTC';
+              try {
+                timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              } catch (e) {
+                console.warn('Failed to detect timezone, falling back to UTC', e);
+              }
+
+              const myLocation: Location = {
+                id: 0,
+                name: "Current Location",
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                country: "Nearby",
+                timezone
+              };
+              addLocation(myLocation);
+            },
+            () => {
+              addLocation(DEFAULT_LOCATION);
+            },
+            { timeout: 8000 }
+          );
+        } else {
+          addLocation(DEFAULT_LOCATION);
+        }
+      } else {
+        // Small delay for non-critical background refresh to allow UI to breathe
+        setTimeout(() => {
+          loadWeatherBatch(state.locations);
+        }, 800);
+      }
+    };
+
+    startup();
+  }, []);
 
   const [dismissedAlerts, setDismissedAlerts] = useState<Record<string, number>>(() => {
     try {
@@ -107,7 +169,6 @@ export default function App() {
   
   const mainRef = useRef<HTMLDivElement>(null);
   const lastScrollY = useRef(0);
-  const scrollAcc = useRef(0);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', state.settings.theme);
@@ -134,21 +195,23 @@ export default function App() {
     if (!location) return;
 
     // 1. Try Cache First for Speed
-    const cachedData = getCachedWeatherData(location.name);
-    if (cachedData && !forceRefresh) {
+    const cacheResult = getCachedWeatherData(getCityKey(location));
+    if (cacheResult && !forceRefresh) {
+      const { data: cachedData } = cacheResult;
       setState(prev => ({
         ...prev,
         weatherData: { ...prev.weatherData, [index]: cachedData },
         loading: false,
         error: null
       }));
-      // If we are online, we should still fetch fresh data in background
-      if (!navigator.onLine) return;
+      // If we are online and cache is reasonably fresh, we can skip immediate background refresh
+      const isStale = Date.now() - (cachedData.fetchedAt || 0) > 30 * 60 * 1000;
+      if (!navigator.onLine || !isStale) return;
     }
 
     try {
       const data = await fetchWeather(location.latitude, location.longitude, location.timezone);
-      saveWeatherData(location.name, data);
+      saveWeatherData(getCityKey(location), data);
       
       setState(prev => {
         if (prev.locations.length <= index || prev.locations[index]?.name !== location.name) {
@@ -178,7 +241,7 @@ export default function App() {
       }
 
       // If we already have cache but fetch failed (likely offline/timeout), keep the cache
-      if (cachedData) {
+      if (state.weatherData[index]) {
         setState(prev => ({ ...prev, loading: false }));
         return;
       }
@@ -272,8 +335,8 @@ export default function App() {
     // Load from cache first for immediate display (Persistent Offline Mode)
     const initialCachedData: Record<number, WeatherData> = {};
     locations.forEach((loc, idx) => {
-      const cached = getCachedWeatherData(loc.name);
-      if (cached) initialCachedData[idx] = cached;
+      const cached = getCachedWeatherData(getCityKey(loc));
+      if (cached) initialCachedData[idx] = cached.data;
     });
 
     if (Object.keys(initialCachedData).length > 0) {
@@ -296,7 +359,7 @@ export default function App() {
           const idx = parseInt(index);
           newWeatherData[idx] = data;
           // Save to persistent cache
-          saveWeatherData(locations[idx].name, data);
+          saveWeatherData(getCityKey(locations[idx]), data);
         });
 
         return {
@@ -321,50 +384,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    const init = async () => {
-      // Defer initial load to ensure UI skeleton renders immediately
-      setTimeout(async () => {
-        // Try geolocation for the default/first location if list is empty
-        if (state.locations.length === 0) {
-          if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-              async (pos) => {
-                let timezone = 'UTC';
-                try {
-                  timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-                } catch (e) {
-                  console.warn('Failed to detect timezone, falling back to UTC', e);
-                }
-
-                const myLocation: Location = {
-                  id: 0,
-                  name: "Current Location",
-                  latitude: pos.coords.latitude,
-                  longitude: pos.coords.longitude,
-                  country: "Nearby",
-                  timezone
-                };
-                addLocation(myLocation);
-              },
-              () => {
-                addLocation(DEFAULT_LOCATION);
-              },
-              { timeout: 8000 }
-            );
-          } else {
-            addLocation(DEFAULT_LOCATION);
-          }
-        } else {
-          // Load weather using a staggered approach
-          loadWeatherBatch(state.locations);
-        }
-      }, 32); // Two frames delay
-    };
-
-    init();
-  }, []);
-
-  useEffect(() => {
     localStorage.setItem('app_settings', JSON.stringify(state.settings));
     localStorage.setItem('app_locations', JSON.stringify(state.locations));
     localStorage.setItem('app_active_index', state.activeLocationIndex.toString());
@@ -376,7 +395,7 @@ export default function App() {
   // Push Notification Helper
   const sendNotification = async (title: string, body: string, icon: string = '/favicon.ico') => {
     if (!state.settings.hapticEnabled) return; // Respect global haptic/alert setting
-    hapticFeedback('warning', state.settings.hapticEnabled);
+    Haptic.warning(state.settings.hapticEnabled);
 
     if (!("Notification" in window)) return;
 
@@ -501,7 +520,7 @@ export default function App() {
 
   const toggleSettings = () => {
     requestAnimationFrame(() => {
-      hapticFeedback('medium', state.settings.hapticEnabled);
+      Haptic.medium(state.settings.hapticEnabled);
       setState(prev => ({ ...prev, showSettings: !prev.showSettings }));
     });
   };
@@ -510,20 +529,20 @@ export default function App() {
   const handleRefresh = async () => {
     if (isRefreshing || state.locations.length === 0) return;
     setIsRefreshing(true);
-    hapticFeedback('medium', state.settings.hapticEnabled);
+    Haptic.medium(state.settings.hapticEnabled);
     
     try {
       await loadWeatherBatch(state.locations);
-      hapticFeedback('success', state.settings.hapticEnabled);
+      Haptic.success(state.settings.hapticEnabled);
     } catch (e) {
-      hapticFeedback('warning', state.settings.hapticEnabled);
+      Haptic.warning(state.settings.hapticEnabled);
     } finally {
       setTimeout(() => setIsRefreshing(false), 800);
     }
   };
 
   const handleSwipe = (direction: 'left' | 'right') => {
-    hapticFeedback('subtle', state.settings.hapticEnabled);
+    Haptic.light(state.settings.hapticEnabled);
     setSlideDirection(direction);
     
     setState(prev => {
@@ -537,10 +556,8 @@ export default function App() {
       return { ...prev, activeLocationIndex: nextIndex };
     });
     
-    setHeaderVisible(true);
     window.scrollTo({ top: 0, behavior: 'auto' });
   };
-
   useEffect(() => {
     const cleanup = initGestures();
 
@@ -638,22 +655,14 @@ export default function App() {
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
-      const diff = currentScrollY - lastScrollY.current;
+      
+      // Only show header at the very top as requested
       if (currentScrollY < 40) {
         setHeaderVisible(true);
-        scrollAcc.current = 0;
-        lastScrollY.current = currentScrollY;
-        return;
-      }
-      if (diff > 0) {
-        if (scrollAcc.current < 0) scrollAcc.current = 0;
-        scrollAcc.current += diff;
-        if (scrollAcc.current > 5) setHeaderVisible(false);
       } else {
-        if (scrollAcc.current > 0) scrollAcc.current = 0;
-        scrollAcc.current += Math.abs(diff);
-        if (scrollAcc.current > 150) setHeaderVisible(true);
+        setHeaderVisible(false);
       }
+      
       lastScrollY.current = currentScrollY;
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -670,24 +679,21 @@ export default function App() {
       />
 
       <motion.header 
-        className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-6 h-24 flex items-center justify-between z-[60]"
+        className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-6 h-24 flex items-center justify-between z-[60] pointer-events-none"
         initial={false}
         animate={{
           y: headerVisible ? 0 : -100,
           opacity: headerVisible ? 1 : 0,
         }}
-        transition={{ 
-          duration: 0.4, 
-          ease: headerVisible ? [0.22, 1, 0.36, 1] : [0.32, 0, 0.67, 0] 
-        }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
       >
         <div className="flex items-center">
           <motion.button 
             onClick={() => {
-              hapticFeedback('subtle', state.settings.hapticEnabled);
+              Haptic.light(state.settings.hapticEnabled);
               setShowCityManager(true);
             }}
-            className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text active:scale-95 transition-all shadow-xl backdrop-blur-xl pointer-events-auto"
+            className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text active:scale-95 transition-all shadow-xl pointer-events-auto"
             initial={false}
             animate={{
               opacity: state.showSettings || showCityManager ? 0 : 1,
@@ -731,7 +737,7 @@ export default function App() {
                       key={i} 
                       onClick={() => {
                         if (state.activeLocationIndex !== i) {
-                          hapticFeedback('subtle', state.settings.hapticEnabled);
+                          Haptic.light(state.settings.hapticEnabled);
                           setState(prev => ({ ...prev, activeLocationIndex: i }));
                         }
                       }}
@@ -799,19 +805,19 @@ export default function App() {
             weatherData={state.weatherData}
             hapticEnabled={state.settings.hapticEnabled}
             onSelect={(index) => {
-              hapticFeedback('subtle', state.settings.hapticEnabled);
+              Haptic.light(state.settings.hapticEnabled);
               setState(prev => ({ ...prev, activeLocationIndex: index }));
               setShowCityManager(false);
             }}
             onAdd={() => {
-              hapticFeedback('medium', state.settings.hapticEnabled);
+              Haptic.medium(state.settings.hapticEnabled);
               setShowSearch(true);
               setShowCityManager(false);
             }}
             onRemove={removeLocation}
             onReorder={reorderLocations}
             onClose={() => {
-              hapticFeedback('subtle', state.settings.hapticEnabled);
+              Haptic.light(state.settings.hapticEnabled);
               setShowCityManager(false);
             }}
           />
@@ -823,12 +829,12 @@ export default function App() {
           <SearchBar 
             hapticEnabled={state.settings.hapticEnabled}
             onSelect={(loc) => {
-              hapticFeedback('success', state.settings.hapticEnabled);
+              Haptic.success(state.settings.hapticEnabled);
               addLocation(loc);
               setShowSearch(false);
             }} 
             onClose={() => {
-              hapticFeedback('subtle', state.settings.hapticEnabled);
+              Haptic.light(state.settings.hapticEnabled);
               setShowSearch(false);
             }}
           />
@@ -844,7 +850,7 @@ export default function App() {
           <AlertsDisplay 
             alerts={activeAlerts} 
             onDismiss={(id) => {
-              hapticFeedback('subtle', state.settings.hapticEnabled);
+              Haptic.light(state.settings.hapticEnabled);
               setDismissedAlerts(prev => ({ ...prev, [id]: Date.now() }));
               setActiveAlerts(prev => prev.filter(a => a.id !== id));
             }} 
@@ -893,6 +899,7 @@ export default function App() {
                 </div>
                 <button 
                   onClick={() => {
+                    Haptic.light(state.settings.hapticEnabled);
                     setState(prev => ({ ...prev, error: null, loading: true }));
                     if (activeLocation) {
                       loadWeather(activeLocation, state.activeLocationIndex, true);
@@ -927,6 +934,7 @@ export default function App() {
               </div>
               <button 
                 onClick={() => {
+                  Haptic.light(state.settings.hapticEnabled);
                   if (activeLocation) loadWeather(activeLocation, state.activeLocationIndex, true);
                 } }
                 className="mt-4 py-3 px-8 bg-app-text/10 hover:bg-app-text/15 text-app-text rounded-2xl text-xs font-black tracking-widest uppercase transition-all"

@@ -678,58 +678,93 @@ export default function App() {
         locationName={activeLocation?.name ?? ''}
       />
 
-      <motion.header 
-        className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-6 h-24 flex items-center justify-between z-[60] pointer-events-none"
-        initial={false}
-        animate={{
-          y: headerVisible ? 0 : -100,
-          opacity: headerVisible ? 1 : 0,
-        }}
-        transition={{ duration: 0.3, ease: 'easeOut' }}
-      >
-        <div className="flex items-center">
-          <motion.button 
-            onClick={() => {
-              Haptic.light(state.settings.hapticEnabled);
-              setShowCityManager(true);
-            }}
-            className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text active:scale-95 transition-all shadow-xl pointer-events-auto"
-            initial={false}
-            animate={{
-              opacity: state.showSettings || showCityManager ? 0 : 1,
-              pointerEvents: state.showSettings || showCityManager ? 'none' : 'auto',
-              scale: state.showSettings || showCityManager ? 0.8 : 1,
-            }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-          >
-            <Icons.LayoutGrid className="w-5 h-5 text-app-text-dim" strokeWidth={1.5} />
-          </motion.button>
-        </div>
+      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] h-24 z-[100] pointer-events-none">
+        <motion.div 
+          className="w-full h-full relative"
+          initial={false}
+          animate={{
+            y: headerVisible ? 0 : -100,
+            opacity: headerVisible ? 1 : 0,
+          }}
+          transition={{ duration: 0.3, ease: 'easeOut' }}
+        >
+          {/* Add City Button - Top Left */}
+          <motion.div className="absolute left-6 top-6 pointer-events-auto">
+            <motion.button 
+              onClick={() => {
+                Haptic.light(state.settings.hapticEnabled);
+                setShowCityManager(true);
+              }}
+              className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text active:scale-95 transition-all shadow-xl"
+              initial={false}
+              animate={{
+                opacity: state.showSettings || showCityManager ? 0 : 1,
+                pointerEvents: state.showSettings || showCityManager ? 'none' : 'auto',
+                scale: state.showSettings || showCityManager ? 0.8 : 1,
+              }}
+            >
+              <Icons.LayoutGrid className="w-5 h-5 text-app-text-dim" strokeWidth={1.5} />
+            </motion.button>
+          </motion.div>
 
-        <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none mt-2">
-           <AnimatePresence mode="wait">
-             <motion.div 
-               key={activeLocation?.id || activeLocation?.name || 'loading'}
-               initial={{ opacity: 0, y: -10 }}
-               animate={{ 
-                 opacity: state.showSettings || showCityManager ? 0 : 1,
-                 y: 0 
-               }}
-               exit={{ opacity: 0, y: 10 }}
-               className="flex flex-col items-center"
-             >
-               <span className="text-[17px] font-semibold text-app-text">{activeLocation?.name || 'Loading...'}</span>
-               
-               {isOffline && (
-                 <motion.div 
-                   initial={{ opacity: 0, scale: 0.8 }}
-                   animate={{ opacity: 1, scale: 1 }}
-                   className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full mt-1"
-                 >
-                   <Icons.CloudOff className="w-2.5 h-2.5 text-amber-500" />
-                   <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Offline</span>
-                 </motion.div>
-               )}
+          {/* Settings Button - Top Right */}
+          <motion.div className="absolute right-6 top-6 pointer-events-auto">
+            <motion.button 
+              onClick={toggleSettings}
+              className="group active:scale-95 transition-all w-12 h-12 flex items-center justify-center"
+            >
+              <AnimatePresence mode="wait">
+                {state.showSettings ? (
+                  <motion.div
+                    key="back"
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 10 }}
+                    className="flex items-center text-app-text pr-2"
+                  >
+                    <Icons.ChevronLeft className="w-6 h-6 mr-0.5" strokeWidth={2.5} />
+                    <span className="text-[17px] font-medium text-app-text">Back</span>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="settings"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text-dim group-hover:text-app-text transition-colors shadow-xl"
+                  >
+                    <Icons.Settings2 className="w-5 h-5" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.button>
+          </motion.div>
+
+          {/* City Name & Pagination - Center */}
+          <div className="absolute left-1/2 -translate-x-1/2 top-6 flex flex-col items-center pointer-events-none mt-2">
+            <AnimatePresence mode="wait">
+              <motion.div 
+                key={activeLocation?.id || activeLocation?.name || 'loading'}
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ 
+                  opacity: state.showSettings || showCityManager ? 0 : 1,
+                  y: 0 
+                }}
+                exit={{ opacity: 0, y: 10 }}
+                className="flex flex-col items-center"
+              >
+                <span className="text-[17px] font-semibold text-app-text">{activeLocation?.name || 'Loading...'}</span>
+                
+                {isOffline && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full mt-1"
+                  >
+                    <Icons.CloudOff className="w-2.5 h-2.5 text-amber-500" />
+                    <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Offline</span>
+                  </motion.div>
+                )}
 
                 <div className="flex gap-1.5 mt-1.5">
                   {state.locations.map((_, i) => (
@@ -750,40 +785,11 @@ export default function App() {
                     />
                   ))}
                 </div>
-             </motion.div>
-           </AnimatePresence>
-        </div>
-
-        <motion.button 
-          onClick={toggleSettings}
-          className="flex items-center group active:scale-95 transition-all pointer-events-auto p-2 -mr-2"
-        >
-          <AnimatePresence mode="wait">
-            {state.showSettings ? (
-              <motion.div
-                key="back"
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 10 }}
-                className="flex items-center text-app-text"
-              >
-                <Icons.ChevronLeft className="w-6 h-6 mr-0.5" strokeWidth={2.5} />
-                <span className="text-[17px] font-medium text-app-text">Back</span>
               </motion.div>
-            ) : (
-              <motion.div
-                key="settings"
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text-dim group-hover:text-app-text transition-colors backdrop-blur-xl shadow-xl"
-              >
-                <Icons.Settings2 className="w-5 h-5" />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.button>
-      </motion.header>
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      </div>
 
       <AnimatePresence>
         {state.showSettings && (

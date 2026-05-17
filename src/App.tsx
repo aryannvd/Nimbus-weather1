@@ -1054,6 +1054,7 @@ export default function App() {
       </AnimatePresence>
 
       <main 
+        id="swipe-layer"
         className="max-w-[390px] mx-auto px-6 pt-[calc(env(safe-area-inset-top)+112px)] pb-32 min-h-screen relative touch-pan-y bottom-content"
       >
         {/* Pull to refresh logic handled by gestures.ts */}

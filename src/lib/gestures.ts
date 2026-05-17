@@ -3,21 +3,32 @@ export function initGestures() {
   if (typeof window === 'undefined') return;
 
   // ── CONFIG ──────────────────────────────────────
-  const SWIPE_THRESHOLD   = 50;
+  const SWIPE_THRESHOLD  = 40;  // min px horizontal
+  const SWIPE_MAX_VERT   = 80;  // max px vertical drift
+  const SWIPE_MAX_TIME   = 500; // max ms for swipe
+  const EDGE_IGNORE      = 30;  // ignore edge px (browser back zone)
   const PULL_THRESHOLD    = 75;
-  const LOCK_ANGLE        = 15; // degrees — axis lock
 
   // ── STATE ───────────────────────────────────────
-  let startX   = 0;
-  let startY   = 0;
-  let axis: 'h' | 'v' | null = null;
-  let active   = false;
+  let startX    = 0;
+  let startY    = 0;
+  let startTime = 0;
+  let tracking  = false;
+  let rafId: number | null = null;
 
   // ── HELPERS ─────────────────────────────────────
   const isInteractive = (el: HTMLElement | null): boolean => {
     if (!el) return false;
-    return !!el.closest(
-      'input, button, select, textarea, [data-no-swipe]'
+    const tag = el.tagName.toLowerCase();
+    return (
+      tag === "input"  ||
+      tag === "button" ||
+      tag === "select" ||
+      tag === "textarea" ||
+      !!el.closest("[data-no-swipe]") ||
+      !!el.closest(".settings-panel") ||
+      !!el.closest(".about-page") ||
+      !!el.closest(".hourly-forecast")
     );
   };
 
@@ -39,38 +50,38 @@ export function initGestures() {
   `;
   document.body.prepend(indicator);
 
-  let rafId: number | null = null;
+  // ── TOUCH START ────────────────────────────────
+  const onTouchStart = (e: TouchEvent) => {
+    const touch = e.touches[0];
 
-  // ── POINTER DOWN ────────────────────────────────
-  const onPointerDown = (e: PointerEvent) => {
-    if (isInteractive(e.target as HTMLElement)) return;
-    startX = e.clientX;
-    startY = e.clientY;
-    axis   = null;
-    active = true;
-  };
-
-  // ── POINTER MOVE ────────────────────────────────
-  const onPointerMove = (e: PointerEvent) => {
-    if (!active) return;
-
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-
-    // Lock axis after 12px movement
-    if (!axis && dist > 12) {
-      const angle = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI);
-      if (angle < 90 - LOCK_ANGLE || angle > 90 + LOCK_ANGLE) {
-        axis = "h";
-        window.dispatchEvent(new CustomEvent("swipe-start"));
-      } else {
-        axis = "v";
-      }
+    // Ignore touches starting from screen edges
+    if (touch.clientX < EDGE_IGNORE || 
+        touch.clientX > window.innerWidth - EDGE_IGNORE) {
+      tracking = false;
+      return;
     }
 
-    // Handle pull indicator with requestAnimationFrame
-    if (axis === "v" && dy > 0 && window.scrollY === 0) {
+    if (isInteractive(e.target as HTMLElement)) {
+      tracking = false;
+      return;
+    }
+
+    startX    = touch.clientX;
+    startY    = touch.clientY;
+    startTime = Date.now();
+    tracking  = true;
+    window.dispatchEvent(new CustomEvent("swipe-start"));
+  };
+
+  // ── TOUCH MOVE ─────────────────────────────────
+  const onTouchMove = (e: TouchEvent) => {
+    if (!tracking) return;
+    const touch = e.touches[0];
+    const dy = touch.clientY - startY;
+    const dx = touch.clientX - startX;
+
+    // Handle pull indicator if moving vertically down at top of page
+    if (Math.abs(dy) > Math.abs(dx) && dy > 0 && window.scrollY === 0) {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         const pull = Math.min(dy, 130);
@@ -81,59 +92,79 @@ export function initGestures() {
                                  : "↓ Pull to refresh";
         rafId = null;
       });
+    } else {
+      // If we move horizontally or up, reset indicator
+      if (indicator.style.transform !== "translateY(-100%)") {
+        indicator.style.transform = "translateY(-100%)";
+      }
     }
   };
 
-  // ── POINTER UP ──────────────────────────────────
-  const onPointerUp = (e: PointerEvent) => {
-    if (!active) return;
-    active = false;
+  // ── TOUCH END ──────────────────────────────────
+  const onTouchEnd = (e: TouchEvent) => {
+    if (!tracking) return;
+    tracking = false;
 
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
+    const touch = e.changedTouches[0];
+    const dx    = touch.clientX - startX;
+    const dy    = touch.clientY - startY;
+    const dt    = Date.now() - startTime;
 
+    // Reset indicator
     if (rafId) cancelAnimationFrame(rafId);
-    requestAnimationFrame(() => {
-      indicator.style.transform = "translateY(-100%)";
-      indicator.textContent  = "";
-    });
+    indicator.style.transform = "translateY(-100%)";
+    indicator.textContent  = "";
 
-    if (axis === "h") {
-      // SWIPE
-      if (dx < -SWIPE_THRESHOLD) {
-        window.dispatchEvent(new CustomEvent("swipe-left"));
-      } else if (dx > SWIPE_THRESHOLD) {
-        window.dispatchEvent(new CustomEvent("swipe-right"));
-      } else {
-        window.dispatchEvent(new CustomEvent("swipe-cancel"));
-      }
-
-    } else if (axis === "v") {
-      // PULL TO REFRESH
-      if (dy >= PULL_THRESHOLD && window.scrollY === 0) {
-        window.dispatchEvent(new CustomEvent("pull-refresh"));
-      }
+    // 1. Check Pull to Refresh (Vertical)
+    if (Math.abs(dy) > Math.abs(dx) && dy >= PULL_THRESHOLD && window.scrollY === 0) {
+      window.dispatchEvent(new CustomEvent("pull-refresh"));
+      return;
     }
 
-    axis = null;
+    // 2. Check Horizontal Swipe
+    // Must be fast enough to be a swipe
+    if (dt > SWIPE_MAX_TIME) {
+      window.dispatchEvent(new CustomEvent("swipe-cancel"));
+      return;
+    }
+
+    // Must be more horizontal than vertical
+    if (Math.abs(dy) > SWIPE_MAX_VERT) {
+      window.dispatchEvent(new CustomEvent("swipe-cancel"));
+      return;
+    }
+
+    // Must exceed threshold
+    if (Math.abs(dx) < SWIPE_THRESHOLD) {
+      window.dispatchEvent(new CustomEvent("swipe-cancel"));
+      return;
+    }
+
+    if (dx < 0) {
+      window.dispatchEvent(new CustomEvent("swipe-left"));
+    } else {
+      window.dispatchEvent(new CustomEvent("swipe-right"));
+    }
   };
 
-  const onPointerCancel = () => {
-    active = false;
-    axis   = null;
-    indicator.style.height = "0";
+  const onTouchCancel = () => {
+    tracking = false;
+    indicator.style.transform = "translateY(-100%)";
+    window.dispatchEvent(new CustomEvent("swipe-cancel"));
   };
 
-  document.addEventListener("pointerdown", onPointerDown, { passive: true });
-  document.addEventListener("pointermove", onPointerMove, { passive: true });
-  document.addEventListener("pointerup", onPointerUp, { passive: true });
-  document.addEventListener("pointercancel", onPointerCancel, { passive: true });
+  const target = document.getElementById("swipe-layer") || document.body;
+
+  target.addEventListener("touchstart", onTouchStart, { passive: true });
+  target.addEventListener("touchmove", onTouchMove, { passive: true });
+  target.addEventListener("touchend", onTouchEnd, { passive: true });
+  target.addEventListener("touchcancel", onTouchCancel, { passive: true });
 
   return () => {
-    document.removeEventListener("pointerdown", onPointerDown);
-    document.removeEventListener("pointermove", onPointerMove);
-    document.removeEventListener("pointerup", onPointerUp);
-    document.removeEventListener("pointercancel", onPointerCancel);
+    target.removeEventListener("touchstart", onTouchStart);
+    target.removeEventListener("touchmove", onTouchMove);
+    target.removeEventListener("touchend", onTouchEnd);
+    target.removeEventListener("touchcancel", onTouchCancel);
     indicator.remove();
   };
 }

@@ -791,9 +791,9 @@ export default function App() {
             opacity: (headerVisible && !isSwiping) ? 1 : 0,
           }}
           transition={{ 
-            duration: 0.3, 
+            duration: 0.12, 
             ease: [0.25, 0.46, 0.45, 0.94],
-            opacity: { duration: (isSwiping || isSwipeCommitted) ? 0.05 : 0.3 } // Near instant hide during swipe
+            opacity: { duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 } // Instant hide during swipe
           }}
         >
           {/* Add City Button - Top Left */}
@@ -811,7 +811,7 @@ export default function App() {
                 scale: state.showSettings || showCityManager ? 0.8 : 1,
               }}
               transition={{ 
-                duration: (isSwiping || isSwipeCommitted) ? 0 : 0.3 
+                duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 
               }}
             >
               <Icons.LayoutGrid className="w-5 h-5 text-app-text-dim" strokeWidth={1.5} />
@@ -826,7 +826,7 @@ export default function App() {
               animate={{
                 opacity: isSwiping || isSwipeCommitted ? 0 : 1,
               }}
-              transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.3 }}
+              transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 }}
             >
               <AnimatePresence mode="wait">
                 {state.showSettings ? (
@@ -866,7 +866,7 @@ export default function App() {
                   y: 0 
                 }}
                 exit={{ opacity: 0, y: 10 }}
-                transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.3 }}
+                transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 }}
                 className="flex flex-col items-center"
               >
                 <span className="text-[17px] font-semibold text-app-text">{activeLocation?.name || 'Loading...'}</span>

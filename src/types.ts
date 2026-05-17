@@ -5,7 +5,10 @@ export interface Location {
   longitude: number;
   country: string;
   admin1?: string;
+  admin2?: string;
   timezone: string;
+  type?: string;
+  featureCode?: string;
 }
 
 export interface WeatherData {

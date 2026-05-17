@@ -33,17 +33,21 @@ export default function AtmosphereFX({ weatherCode, isDay, moonPhase, locationNa
         hasFlashes: true,
       };
     }
-    // 2. Overcast: Boundless Grey White Gradient
+    // 2. Overcast / Cloudy: Smooth Grey Atmosphere
     if (weatherCode === 3) {
       return {
-        colors: isDay ? ['rgba(209, 213, 219, 0.35)', 'rgba(243, 244, 246, 0.2)'] : ['rgba(75, 85, 99, 0.3)', 'rgba(156, 163, 175, 0.15)'],
-        hasClouds: false,
+        colors: isDay 
+          ? ['rgba(148, 163, 184, 0.35)', 'rgba(241, 245, 249, 0.15)'] // Slate-400 to Slate-100
+          : ['rgba(71, 85, 105, 0.4)', 'rgba(15, 23, 42, 0.1)'],      // Slate-600 to Slate-900
+        hasClouds: true,
       };
     }
-    // 2.1 Fog: Misty Drift
+    // 2.1 Fog / Mist: Misty Drift
     if (weatherCode === 45 || weatherCode === 48) {
       return {
-        colors: isDay ? ['rgba(203, 213, 225, 0.3)', 'rgba(241, 245, 249, 0.15)'] : ['rgba(15, 23, 42, 0.4)', 'rgba(30, 41, 59, 0.2)'],
+        colors: isDay 
+          ? ['rgba(203, 213, 225, 0.3)', 'rgba(241, 245, 249, 0.15)'] 
+          : ['rgba(30, 41, 59, 0.4)', 'rgba(15, 23, 42, 0.2)'],
         hasClouds: true,
       };
     }
@@ -54,10 +58,12 @@ export default function AtmosphereFX({ weatherCode, isDay, moonPhase, locationNa
         hasMist: true,
       };
     }
-    // 4. Partly Cloudy: Dynamic Skylight
+    // 4. Partly Cloudy: Dynamic Skylight / Soft Grey-Blue
     if (weatherCode === 1 || weatherCode === 2) {
       return {
-        colors: isDay ? ['rgba(251, 191, 36, 0.2)', 'rgba(56, 189, 248, 0.15)'] : ['rgba(30, 58, 138, 0.3)', 'rgba(255, 255, 255, 0.05)'],
+        colors: isDay 
+          ? ['rgba(148, 163, 184, 0.25)', 'rgba(186, 230, 253, 0.15)'] // Slate-400 to Sky-200
+          : ['rgba(30, 58, 138, 0.3)', 'rgba(148, 163, 184, 0.1)'],     // Blue-900 to Slate-400
         hasDrift: true,
       };
     }

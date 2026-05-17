@@ -7,6 +7,10 @@ import {
   CloudDrizzle, 
   CloudRain, 
   CloudLightning, 
+  CloudSnow,
+  CloudRainWind,
+  CloudSunRain,
+  CloudMoonRain,
   Snowflake, 
   Moon,
   MoonStar,
@@ -37,7 +41,10 @@ import {
   Clock,
   CloudOff,
   RotateCcw,
-  ShieldCheck
+  ShieldCheck,
+  Mountain,
+  Plane,
+  Map
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion } from 'motion/react';
@@ -51,6 +58,10 @@ export const RawIcons = {
   CloudDrizzle,
   CloudRain,
   CloudLightning,
+  CloudSnow,
+  CloudRainWind,
+  CloudSunRain,
+  CloudMoonRain,
   Snowflake,
   Moon,
   MoonStar,
@@ -81,7 +92,10 @@ export const RawIcons = {
   Clock,
   CloudOff,
   RotateCcw,
-  ShieldCheck
+  ShieldCheck,
+  Mountain,
+  Plane,
+  Map
 };
 
 export type IconType = keyof typeof RawIcons;
@@ -109,6 +123,10 @@ export const WeatherIcon = ({ name, style: propStyle = 'outline', className, str
       case 'Sun': case 'Sunrise': case 'Sunset': return 'text-yellow-400';
       case 'Moon': return 'text-blue-200';
       case 'MoonStar': return 'text-blue-100';
+      case 'CloudSunRain': return 'text-orange-200';
+      case 'CloudMoonRain': return 'text-blue-200';
+      case 'CloudRainWind': return 'text-blue-500';
+      case 'CloudSnow': return 'text-blue-100';
       case 'CloudSun': return 'text-orange-300';
       case 'CloudMoon': return 'text-blue-300';
       case 'CloudRain': case 'CloudDrizzle': return 'text-blue-400';

@@ -65,8 +65,8 @@ export async function searchLocations(query: string): Promise<Location[]> {
   if (query.length < 2) return [];
   
   try {
-    // Shorter timeout and no retries for search to keep it snappy
-    const response = await fetchWithTimeout(`${GEO_API_URL}?name=${encodeURIComponent(query)}&count=10&language=en&format=json`, {}, 5000, 0);
+    // Increase count to 20 for more disambiguation options
+    const response = await fetchWithTimeout(`${GEO_API_URL}?name=${encodeURIComponent(query)}&count=20&language=en&format=json`, {}, 5000, 0);
     
     if (!response.ok) {
        return [];
@@ -83,12 +83,77 @@ export async function searchLocations(query: string): Promise<Location[]> {
       longitude: item.longitude,
       country: item.country || '',
       admin1: item.admin1,
+      admin2: item.admin2,
       timezone: item.timezone || 'UTC',
+      featureCode: item.feature_code,
+      type: getFeatureLabel(item.feature_code),
     }));
   } catch (err) {
     console.warn('Location search failed:', err);
     return [];
   }
+}
+
+export async function reverseGeocode(lat: number, lon: number): Promise<Partial<Location> | null> {
+  try {
+    const response = await fetchWithTimeout(
+      `${GEO_API_URL.replace('name', 'latitude')}=${lat}&longitude=${lon}&count=1&language=en&format=json`.replace('?latitude', '?latitude'), // Fixed URL construction
+      {}, 5000, 0
+    );
+    
+    // Wait, let me fix that URL construction logic for Open-Meteo reverse geocoding
+    const reverseUrl = `https://geocoding-api.open-meteo.com/v1/get?latitude=${lat}&longitude=${lon}&language=en&format=json`;
+    const res = await fetch(reverseUrl);
+    
+    if (!res.ok) return null;
+    const data = await res.json();
+    
+    if (data.results && data.results.length > 0) {
+      const item = data.results[0];
+      return {
+        name: item.name,
+        country: item.country,
+        admin1: item.admin1,
+        admin2: item.admin2,
+        timezone: item.timezone,
+        featureCode: item.feature_code,
+        type: getFeatureLabel(item.feature_code),
+      };
+    }
+    return null;
+  } catch (err) {
+    console.warn('Reverse geocode failed:', err);
+    return null;
+  }
+}
+
+// Helper to translate feature codes to readable labels
+function getFeatureLabel(code?: string): string | undefined {
+  if (!code) return undefined;
+  
+  const mapping: Record<string, string> = {
+    'PPLC': 'Capital',
+    'PPLA': 'Admin Capital',
+    'PPLA2': 'City',
+    'PPL': 'City/Town',
+    'ADM1': 'Region',
+    'ADM2': 'District',
+    'ADM3': 'Municipality',
+    'CONT': 'Continent',
+    'MT': 'Mountain',
+    'LK': 'Lake',
+    'ISL': 'Island',
+    'AIRP': 'Airport',
+    'PK': 'Peak',
+    'HLL': 'Hill',
+    'VAL': 'Valley',
+    'STM': 'Stream',
+    'RGN': 'Region',
+    'PRK': 'Park',
+    'RESV': 'Reservoir',
+  };
+  
+  return mapping[code] || undefined;
 }
 
 export const getAQIInfo = (aqi: number) => {
@@ -124,20 +189,39 @@ export const getAQIInfo = (aqi: number) => {
   };
 };
 
-export const getMoonPhaseInfo = (phase: number) => {
-  // Open-Meteo moon_phase: 0: New Moon, 0.25: First Quarter, 0.5: Full Moon, 0.75: Last Quarter, 1.0: New Moon
-  // Normalized illumination based on distance from New Moon (0 or 1)
-  const distFromNew = Math.min(phase, 1 - phase);
-  const illumination = Math.round(distFromNew * 200);
+export const getMoonPhaseInfo = (_phase?: number) => {
+  const date = new Date();
+  
+  // Known new moon reference date
+  const knownNewMoon = new Date("2000-01-06");
+  const lunarCycle = 29.53058867;
 
-  if (phase === 0 || phase === 1) return { label: 'New Moon', illumination: 0, icon: 'Moon' as const };
-  if (phase > 0 && phase < 0.25) return { label: 'Waxing Crescent', illumination, icon: 'Moon' as const };
-  if (phase === 0.25) return { label: 'First Quarter', illumination: 50, icon: 'Moon' as const };
-  if (phase > 0.25 && phase < 0.5) return { label: 'Waxing Gibbous', illumination, icon: 'MoonStar' as const };
-  if (phase === 0.5) return { label: 'Full Moon', illumination: 100, icon: 'MoonStar' as const };
-  if (phase > 0.5 && phase < 0.75) return { label: 'Waning Gibbous', illumination, icon: 'MoonStar' as const };
-  if (phase === 0.75) return { label: 'Last Quarter', illumination: 50, icon: 'Moon' as const };
-  return { label: 'Waning Crescent', illumination, icon: 'Moon' as const };
+  const diff = (date.getTime() - knownNewMoon.getTime()) / (1000 * 60 * 60 * 24);
+  const cycles = diff / lunarCycle;
+  const phase = (cycles % 1 + 1) % 1;
+  const illumination = Math.round((1 - Math.cos(2 * Math.PI * phase)) / 2 * 100);
+
+  let label, icon: 'Moon' | 'MoonStar', emoji;
+  
+  if (phase < 0.03 || phase >= 0.97) {
+    label = "New Moon";        emoji = "🌑"; icon = 'Moon';
+  } else if (phase < 0.22) {
+    label = "Waxing Crescent"; emoji = "🌒"; icon = 'Moon';
+  } else if (phase < 0.28) {
+    label = "First Quarter";   emoji = "🌓"; icon = 'Moon';
+  } else if (phase < 0.47) {
+    label = "Waxing Gibbous";  emoji = "🌔"; icon = 'MoonStar';
+  } else if (phase < 0.53) {
+    label = "Full Moon";       emoji = "🌕"; icon = 'MoonStar';
+  } else if (phase < 0.72) {
+    label = "Waning Gibbous";  emoji = "🌖"; icon = 'MoonStar';
+  } else if (phase < 0.78) {
+    label = "Last Quarter";    emoji = "🌗"; icon = 'Moon';
+  } else {
+    label = "Waning Crescent"; emoji = "🌘"; icon = 'Moon';
+  }
+
+  return { label, illumination, icon, emoji, phase };
 };
 
 function interpolate(value: number, il: number, ih: number, ql: number, qh: number) {
@@ -396,13 +480,13 @@ export async function fetchWeatherBulk(locations: Location[]): Promise<Record<nu
       hourly: {
         time: weatherData.hourly.time,
         temperature: weatherData.hourly.temperature_2m,
-        weatherCode: weatherData.hourly.weather_code,
-        precipitationProbability: weatherData.hourly.precipitation_probability,
-        windDirection: weatherData.hourly.wind_direction_10m,
+        weatherCode: weatherData.hourly.weather_code || weatherData.hourly.weathercode || [],
+        precipitationProbability: weatherData.hourly.precipitation_probability || weatherData.hourly.precipitation_probability_max || [],
+        windDirection: weatherData.hourly.wind_direction_10m || weatherData.hourly.winddirection_10m || [],
       },
       daily: {
         time: weatherData.daily.time,
-        weatherCode: weatherData.daily.weather_code,
+        weatherCode: weatherData.daily.weather_code || weatherData.daily.weathercode || [],
         temperatureMax: weatherData.daily.temperature_2m_max,
         temperatureMin: weatherData.daily.temperature_2m_min,
         sunrise: astroData?.daily?.sunrise || weatherData.daily.sunrise,
@@ -598,13 +682,13 @@ export async function fetchWeather(lat: number, lon: number, timezone: string, c
     hourly: {
       time: weatherData.hourly.time,
       temperature: weatherData.hourly.temperature_2m,
-      weatherCode: weatherData.hourly.weather_code,
-      precipitationProbability: weatherData.hourly.precipitation_probability,
-      windDirection: weatherData.hourly.wind_direction_10m,
+      weatherCode: weatherData.hourly.weather_code || weatherData.hourly.weathercode || [],
+      precipitationProbability: weatherData.hourly.precipitation_probability || weatherData.hourly.precipitation_probability_max || [],
+      windDirection: weatherData.hourly.wind_direction_10m || weatherData.hourly.winddirection_10m || [],
     },
     daily: {
       time: weatherData.daily.time,
-      weatherCode: weatherData.daily.weather_code,
+      weatherCode: weatherData.daily.weather_code || weatherData.daily.weathercode || [],
       temperatureMax: weatherData.daily.temperature_2m_max,
       temperatureMin: weatherData.daily.temperature_2m_min,
       sunrise: astroData?.daily?.sunrise || weatherData.daily.sunrise,
@@ -642,15 +726,20 @@ export function getWeatherInfo(code: number, isDay: boolean = true) {
     51: { label: 'Light Drizzle', icon: 'CloudDrizzle' },
     53: { label: 'Moderate Drizzle', icon: 'CloudDrizzle' },
     55: { label: 'Dense Drizzle', icon: 'CloudDrizzle' },
-    61: { label: 'Slight Rain', icon: 'CloudRain' },
+    61: { label: 'Slight Rain', icon: isDay ? 'CloudSunRain' : 'CloudMoonRain' },
     63: { label: 'Moderate Rain', icon: 'CloudRain' },
-    65: { label: 'Heavy Rain', icon: 'CloudRain' },
+    65: { label: 'Heavy Rain', icon: 'CloudRainWind' },
+    66: { label: 'Light Freezing Rain', icon: 'CloudSnow' },
+    67: { label: 'Heavy Freezing Rain', icon: 'CloudSnow' },
     71: { label: 'Slight Snow', icon: 'Snowflake' },
-    73: { label: 'Moderate Snow', icon: 'Snowflake' },
-    75: { label: 'Heavy Snow', icon: 'Snowflake' },
-    80: { label: 'Slight Rain Showers', icon: 'CloudRain' },
+    73: { label: 'Moderate Snow', icon: 'CloudSnow' },
+    75: { label: 'Heavy Snow', icon: 'CloudSnow' },
+    77: { label: 'Snow Grains', icon: 'Snowflake' },
+    80: { label: 'Slight Rain Showers', icon: isDay ? 'CloudSunRain' : 'CloudMoonRain' },
     81: { label: 'Moderate Rain Showers', icon: 'CloudRain' },
-    82: { label: 'Violent Rain Showers', icon: 'CloudRain' },
+    82: { label: 'Violent Rain Showers', icon: 'CloudRainWind' },
+    85: { label: 'Slight Snow Showers', icon: 'CloudSnow' },
+    86: { label: 'Heavy Snow Showers', icon: 'CloudSnow' },
     95: { label: 'Thunderstorm', icon: 'CloudLightning' },
     96: { label: 'Thunderstorm with Hail', icon: 'CloudLightning' },
     99: { label: 'Thunderstorm with Heavy Hail', icon: 'CloudLightning' },

@@ -39,4 +39,4 @@ export function getCachedWeatherData(locationKey: string): { data: WeatherData; 
 }
 
 export { STORAGE_KEYS };
-export const CACHE_EXPIRY = 30 * 60 * 1000; // 30 minutes
+export const CACHE_EXPIRY = 3 * 60 * 60 * 1000; // 3 hours

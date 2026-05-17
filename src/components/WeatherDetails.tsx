@@ -83,7 +83,7 @@ export default function WeatherDetails({ weather, settings }: WeatherDetailsProp
                   return (
                     <div className="flex items-center gap-1.5 bg-orange-500/10 px-2.5 py-1 rounded-full border border-orange-500/20">
                       <span className="text-[9px] font-black text-orange-400 uppercase tracking-wider">
-                        ⚠ Data from {Math.round(ageMinutes/60)}h ago
+                        ⚠ Data from {Math.round(ageMinutes/60)}h
                       </span>
                     </div>
                   );

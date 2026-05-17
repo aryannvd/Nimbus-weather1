@@ -27,17 +27,46 @@ export function HourlyForecast({ weather, settings }: ForecastProps) {
       lastScrollPos.current = current;
     }
   };
-  // Get next 24 hours relative to the city's time
-  const baseCityTime = parseISO(weather.current.time.includes('Z') ? weather.current.time : `${weather.current.time}:00Z`);
-  const elapsedMs = Date.now() - weather.fetchedAt;
-  const cityNow = new Date(baseCityTime.getTime() + elapsedMs);
+  // Get the city's current local time robustly using its timezone
+  const getCityNow = () => {
+    try {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: weather.timezone,
+        year: 'numeric', month: 'numeric', day: 'numeric',
+        hour: 'numeric', minute: 'numeric', second: 'numeric',
+        hour12: false
+      });
+      const parts = formatter.formatToParts(now);
+      const p: Record<string, string> = {};
+      parts.forEach(({ type, value }) => { p[type] = value; });
+
+      return new Date(Date.UTC(
+        parseInt(p.year),
+        parseInt(p.month) - 1,
+        parseInt(p.day),
+        parseInt(p.hour),
+        parseInt(p.minute),
+        parseInt(p.second)
+      ));
+    } catch (e) {
+      // Fallback to basic offset logic if timezone is invalid
+      console.warn("Timezone robust parsing failed, falling back", e);
+      const baseCityTime = parseISO(weather.current.time.includes('Z') ? weather.current.time : `${weather.current.time}:00Z`);
+      const elapsedMs = Date.now() - weather.fetchedAt;
+      return new Date(baseCityTime.getTime() + elapsedMs);
+    }
+  };
+
+  const cityNow = getCityNow();
 
   const hourlyData = (weather?.hourly?.time || [])
     .map((time, i) => {
       const itemTime = parseISO(time.includes('Z') ? time : `${time}:00Z`);
       
       // Determine if it's day or night for this specific hour
-      const dateStr = format(itemTime, 'yyyy-MM-dd');
+      // Use the raw time string to get the date portion to avoid locale/timezone shifts during day matching
+      const dateStr = time.split('T')[0];
       const dayIdx = weather.daily.time.indexOf(dateStr);
       let isDay = true;
       
@@ -56,13 +85,15 @@ export function HourlyForecast({ weather, settings }: ForecastProps) {
       };
     })
     .filter(item => {
-      // Comparison works because both are parsed as UTC
-      return item.time >= cityNow || (cityNow.getTime() - item.time.getTime() < 3600000 && item.time <= cityNow);
+      // Filter for items starting from the current hour in the city
+      // We allow items up to 59 minutes old to be "Now"
+      const hourMs = 3600000;
+      return item.time.getTime() + hourMs > cityNow.getTime();
     })
     .slice(0, 24);
 
   return (
-    <div className="relative -mx-6">
+    <div className="relative -mx-6 hourly-forecast">
       <div className="flex items-center justify-between px-6 mb-3">
         <span className="text-[11px] font-bold tracking-[0.15em] uppercase text-app-text-dim">Hourly Forecast</span>
       </div>

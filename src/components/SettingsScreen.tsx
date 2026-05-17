@@ -279,7 +279,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
         stiffness: 400,
         damping: 30
       }}
-      className="fixed inset-0 z-[100] bg-app-bg/95 backdrop-blur-2xl px-6 py-20 overflow-y-auto gpu will-change-transform"
+      className="fixed inset-0 z-[100] bg-app-bg/95 backdrop-blur-2xl px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-20 overflow-y-auto gpu will-change-transform"
     >
       <div className="max-w-[390px] mx-auto min-h-full flex flex-col">
         <header className="flex items-center justify-between mb-10">
@@ -320,7 +320,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
         exit={{ opacity: 0, x: 20 }}
         className="fixed inset-0 z-[100] bg-app-bg overflow-y-auto"
       >
-        <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-16 pb-24 flex flex-col items-center">
+        <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-24 flex flex-col items-center">
           <header className="w-full flex items-center mb-12">
             <button 
               onClick={() => {
@@ -363,7 +363,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
       exit={{ opacity: 0, x: 20 }}
       className="fixed inset-0 z-[60] bg-app-bg overflow-y-auto about-page touch-pan-y"
     >
-        <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-16 pb-24">
+        <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-24">
           <header className="flex items-center mb-16 px-1">
              <button 
               onClick={() => {
@@ -430,7 +430,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
       className="fixed inset-0 z-50 bg-app-bg overflow-y-auto gpu settings-panel touch-pan-y will-change-transform"
       data-no-swipe
     >
-      <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-32 pb-24">
+      <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+112px)] pb-24">
         <h1 className="text-[34px] font-bold text-app-text mb-8 tracking-tight px-1">Settings</h1>
 
         <Section title="Weather alerts">

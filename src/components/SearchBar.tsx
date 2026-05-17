@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icons } from './WeatherIcons';
-import { searchLocations } from '../services/weatherService';
+import { searchLocations, reverseGeocode } from '../services/weatherService';
 import { Location } from '../types';
 import debounce from 'lodash.debounce';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, GLASS_STYLE } from '../lib/utils';
 import { Haptic } from '../lib/haptics';
+import Fuse from 'fuse.js';
 
 interface SearchBarProps {
   onSelect: (location: Location) => void;
@@ -15,8 +16,9 @@ interface SearchBarProps {
 
 export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBarProps) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Location[]>([]);
+  const [rawResults, setRawResults] = useState<Location[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [geoError, setGeoError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -26,17 +28,34 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
     }
   }, []);
 
+  // Fuse instance for client-side fuzzy refinement
+  const fuse = useMemo(() => {
+    return new Fuse(rawResults, {
+      keys: ['name', 'admin1', 'admin2', 'country', 'type'],
+      threshold: 0.4,
+      includeScore: true,
+      shouldSort: true,
+    });
+  }, [rawResults]);
+
+  // Derived results using Fuse.js if query is present, otherwise raw
+  const results = useMemo(() => {
+    if (!query || rawResults.length === 0) return rawResults;
+    const fuseResults = fuse.search(query);
+    return fuseResults.length > 0 ? fuseResults.map(r => r.item) : rawResults;
+  }, [fuse, rawResults, query]);
+
   const debouncedSearch = useRef(
     debounce(async (q: string) => {
       if (q.length < 2) {
-        setResults([]);
+        setRawResults([]);
         setIsLoading(false);
         return;
       }
       setIsLoading(true);
       try {
         const locations = await searchLocations(q);
-        setResults(locations);
+        setRawResults(locations);
       } catch (error) {
         console.error('Search failed', error);
       } finally {
@@ -54,7 +73,7 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] bg-app-bg/90 backdrop-blur-2xl flex flex-col pt-12"
+      className="fixed inset-0 z-[100] bg-app-bg/90 backdrop-blur-2xl flex flex-col pt-[calc(env(safe-area-inset-top)+24px)]"
     >
       <div className="max-w-[390px] mx-auto w-full px-6 flex flex-col h-full">
         <header className="flex items-center gap-4 mb-8">
@@ -76,7 +95,7 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
                 onClick={() => { 
                   Haptic.light(hapticEnabled);
                   setQuery(''); 
-                  setResults([]); 
+                  setRawResults([]); 
                 }} 
                 className="text-app-text-dim/40 hover:text-app-text"
               >
@@ -111,16 +130,35 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
                     Haptic.success(hapticEnabled);
                     onSelect(loc);
                   }}
-                  className="w-full flex items-center gap-4 p-4 text-left active:bg-app-text/5 bg-app-surface border border-app-border rounded-2xl transition-all"
+                  className="w-full flex items-center gap-4 p-4 text-left active:bg-app-text/5 bg-app-surface border border-app-border rounded-2xl transition-all group"
                 >
-                  <div className="p-3 bg-app-text/5 rounded-xl">
-                    <Icons.MapPin className="w-5 h-5 text-app-text-dim/40 flex-shrink-0" />
+                  <div className="p-3 bg-app-text/5 rounded-xl group-active:scale-95 transition-transform">
+                    {loc.type === 'Mountain' || loc.type === 'Peak' ? (
+                      <Icons.Mountain className="w-5 h-5 text-app-text-dim/40 flex-shrink-0" />
+                    ) : loc.type === 'Airport' ? (
+                      <Icons.Plane className="w-5 h-5 text-app-text-dim/40 flex-shrink-0" />
+                    ) : loc.type === 'Region' || loc.type === 'District' ? (
+                      <Icons.Map className="w-5 h-5 text-app-text-dim/40 flex-shrink-0" />
+                    ) : (
+                      <Icons.MapPin className="w-5 h-5 text-app-text-dim/40 flex-shrink-0" />
+                    )}
                   </div>
-                  <div className="flex flex-col">
-                    <span className="text-[16px] font-medium text-app-text">{loc.name}</span>
-                    <span className="text-[13px] text-app-text-dim">{loc.admin1 ? `${loc.admin1}, ` : ''}{loc.country}</span>
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[16px] font-medium text-app-text truncate">{loc.name}</span>
+                      {loc.type && (
+                        <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-app-text/10 text-app-text-dim/60 rounded-[4px]">
+                          {loc.type}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[13px] text-app-text-dim truncate">
+                      {loc.admin2 ? `${loc.admin2}, ` : ''}
+                      {loc.admin1 ? `${loc.admin1}, ` : ''}
+                      {loc.country}
+                    </span>
                   </div>
-                  <Icons.Plus className="w-5 h-5 text-app-text-dim/20 ml-auto" />
+                  <Icons.Plus className="w-5 h-5 text-app-text-dim/20" />
                 </button>
               ))}
             </div>
@@ -133,32 +171,95 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
             <div className="flex flex-col gap-6">
               <div className="flex flex-col gap-2">
                 <h3 className="text-[11px] font-semibold text-app-text-dim/40 uppercase tracking-[0.1em] px-2 mb-2">Nearby</h3>
+                
+                {geoError && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl mb-2"
+                  >
+                    <div className="flex gap-3">
+                      <Icons.ShieldAlert className="w-5 h-5 text-red-500 flex-shrink-0" />
+                      <div className="flex flex-col gap-1">
+                        <p className="text-[13px] font-bold text-red-500 uppercase tracking-wider">Location Error</p>
+                        <p className="text-[12px] text-app-text-dim leading-relaxed">
+                          {geoError.includes('denied') 
+                            ? "Location access is blocked. Please enable GPS/Location in your device settings and allow the browser to see your location."
+                            : geoError}
+                        </p>
+                        <button 
+                          onClick={() => setGeoError(null)}
+                          className="text-[11px] font-black text-app-text uppercase tracking-widest mt-2 hover:opacity-70 transition-all text-left"
+                        >
+                          Try Again
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
                 <button 
                   onClick={() => {
                     Haptic.medium(hapticEnabled);
+                    setGeoError(null);
                     if (navigator.geolocation) {
                       setIsLoading(true);
                       navigator.geolocation.getCurrentPosition(
-                        (pos) => {
-                          const curLoc: Location = {
-                            id: 0,
-                            name: "Current Location",
-                            latitude: pos.coords.latitude,
-                            longitude: pos.coords.longitude,
-                            country: "Nearby",
-                            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-                          };
-                          Haptic.success(hapticEnabled);
-                          onSelect(curLoc);
-                          setIsLoading(false);
+                        async (pos) => {
+                          try {
+                            const lat = pos.coords.latitude;
+                            const lon = pos.coords.longitude;
+                            
+                            // Try to get a real city name
+                            const resolvedLocation = await reverseGeocode(lat, lon);
+                            
+                            const curLoc: Location = {
+                              id: resolvedLocation?.name ? Math.floor(Date.now() / 1000) : 0, 
+                              name: resolvedLocation?.name || "Current Location",
+                              latitude: lat,
+                              longitude: lon,
+                              country: resolvedLocation?.country || "Nearby",
+                              admin1: resolvedLocation?.admin1,
+                              admin2: resolvedLocation?.admin2,
+                              timezone: resolvedLocation?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                              type: resolvedLocation?.type,
+                              featureCode: resolvedLocation?.featureCode
+                            };
+                            
+                            Haptic.success(hapticEnabled);
+                            onSelect(curLoc);
+                          } catch (err) {
+                            console.error("Reverse geocoding error:", err);
+                            // Fallback if reverse geocode fails
+                            onSelect({
+                              id: 0,
+                              name: "Current Location",
+                              latitude: pos.coords.latitude,
+                              longitude: pos.coords.longitude,
+                              country: "Nearby",
+                              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+                            });
+                          } finally {
+                            setIsLoading(false);
+                          }
                         },
                         (err) => {
                           console.warn("Geolocation denied in search:", err);
                           setIsLoading(false);
-                          // Maybe show a toast or message
+                          if (err.code === err.PERMISSION_DENIED) {
+                            setGeoError("Permission denied. We need your permission to fetch weather for your exact location.");
+                          } else if (err.code === err.POSITION_UNAVAILABLE) {
+                            setGeoError("Location signals unavailable. Ensure GPS is enabled or try using a high-precision location service.");
+                          } else if (err.code === err.TIMEOUT) {
+                            setGeoError("Location request timed out. Please check your connection.");
+                          } else {
+                            setGeoError("An unknown location error occurred.");
+                          }
                         },
-                        { timeout: 8000 }
+                        { timeout: 10000, enableHighAccuracy: true }
                       );
+                    } else {
+                      setGeoError("Geolocation is not supported by your browser.");
                     }
                   }}
                   className="w-full flex items-center gap-4 p-4 text-left active:bg-app-text/5 bg-app-surface border border-app-border rounded-2xl transition-all"

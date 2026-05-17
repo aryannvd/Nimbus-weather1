@@ -37,11 +37,11 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
 
   const formatLastUpdated = (ts: number) => {
     const minutes = Math.floor((Date.now() - ts) / 60000);
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
+    if (minutes < 1) return 'NOW';
+    if (minutes < 60) return `${minutes}m`;
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d`;
   };
 
   return (
@@ -53,9 +53,8 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
           animate={{ opacity: 1, x: 0 }}
           className="flex items-center gap-2 bg-app-surface py-1.5 px-3 rounded-full border border-app-border"
         >
-          <WeatherIcon name={moonPhase.icon as any} className="w-3.5 h-3.5 text-app-text-dim" strokeWidth={1.5} />
-          <span className="text-[10px] uppercase font-bold tracking-widest text-app-text-dim">
-            {moonPhase.label} • {moonPhase.illumination}%
+          <span className="text-[10px] uppercase font-bold tracking-widest text-app-text-dim whitespace-nowrap">
+            {moonPhase.emoji} {moonPhase.label} • {moonPhase.illumination}%
           </span>
         </motion.div>
 

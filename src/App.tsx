@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { formatTemp } from './lib/units';
 import { Location, WeatherData, WeatherState, Settings } from './types';
-import { fetchWeather, fetchWeatherBulk } from './services/weatherService';
-import { getCachedWeatherData, saveWeatherData, STORAGE_KEYS, getCityKey } from './lib/storage';
+import { fetchWeather, fetchWeatherBulk, getMoonPhaseInfo } from './services/weatherService';
+import { getCachedWeatherData, saveWeatherData, STORAGE_KEYS, getCityKey, CACHE_EXPIRY } from './lib/storage';
 import { initGestures } from './lib/gestures';
 import WeatherSkeleton from './components/WeatherSkeleton';
 import AtmosphereFX from './components/AtmosphereFX';
@@ -173,6 +173,9 @@ export default function App() {
             (err) => {
               if (isMounted.current) {
                 console.warn("Geolocation failed or denied:", err.message);
+                if (err.code === err.PERMISSION_DENIED) {
+                  setLocationPermissionError(true);
+                }
                 if (!hasLocations) {
                   addLocation(DEFAULT_LOCATION);
                 } else {
@@ -216,6 +219,7 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSwiping, setIsSwiping] = useState(false);
   const [isSwipeCommitted, setIsSwipeCommitted] = useState(false);
+  const [locationPermissionError, setLocationPermissionError] = useState<boolean>(false);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showCityManager, setShowCityManager] = useState(false);
@@ -260,7 +264,7 @@ export default function App() {
         error: null
       }));
       // If we are online and cache is reasonably fresh, we can skip immediate background refresh
-      const isStale = Date.now() - (cachedData.fetchedAt || 0) > 30 * 60 * 1000;
+      const isStale = Date.now() - (cachedData.fetchedAt || 0) > CACHE_EXPIRY;
       if (!navigator.onLine || !isStale) return;
     }
 
@@ -311,10 +315,16 @@ export default function App() {
 
   const addLocation = (location: Location) => {
     // 1. Check if location already exists upfront to avoid async state issues
-    const existsIndex = state.locations.findIndex(l => 
-      (l.latitude === location.latitude && l.longitude === location.longitude) || 
-      (l.id !== 0 && l.id === location.id)
-    );
+    const existsIndex = state.locations.findIndex(l => {
+      const sameCoords = Math.abs(l.latitude - location.latitude) < 0.01 && 
+                         Math.abs(l.longitude - location.longitude) < 0.01;
+      const sameId = l.id !== 0 && l.id === location.id;
+      const sameName = l.name.toLowerCase() === location.name.toLowerCase() && 
+                       l.country === location.country &&
+                       l.admin1 === location.admin1;
+      
+      return sameCoords || sameId || sameName;
+    });
 
     if (existsIndex !== -1) {
       setState(prev => ({ 
@@ -618,7 +628,7 @@ export default function App() {
     const cleanup = initGestures();
 
     const onSwipeLeft = () => {
-      if (state.showSettings || showSearch || showCityManager) {
+      if (state.showSettings || showSearch || showCityManager || state.locations.length <= 1) {
         setIsSwiping(false);
         setIsSwipeCommitted(false);
         return;
@@ -628,7 +638,7 @@ export default function App() {
     };
 
     const onSwipeRight = () => {
-      if (state.showSettings || showSearch || showCityManager) {
+      if (state.showSettings || showSearch || showCityManager || state.locations.length <= 1) {
         setIsSwiping(false);
         setIsSwipeCommitted(false);
         return;
@@ -638,7 +648,7 @@ export default function App() {
     };
 
     const onSwipeStart = () => {
-      if (state.showSettings || showSearch || showCityManager) return;
+      if (state.showSettings || showSearch || showCityManager || state.locations.length <= 1) return;
       setIsSwiping(true);
       setIsSwipeCommitted(false);
     };
@@ -748,18 +758,13 @@ export default function App() {
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
-      const scrollDiff = currentScrollY - lastScrollY.current;
       
-      // 1. Always show at the very top
+      // Show ONLY at the very top as requested
       if (currentScrollY < 10) {
         setHeaderVisible(true);
       } 
-      // 2. Show on scroll UP (user intent to see header)
-      else if (scrollDiff < -5) {
-        setHeaderVisible(true);
-      }
-      // 3. Hide on scroll DOWN
-      else if (scrollDiff > 5 && currentScrollY > 100) {
+      // Hide as soon as we scroll down
+      else if (currentScrollY > 40) {
         setHeaderVisible(false);
       }
       
@@ -778,16 +783,16 @@ export default function App() {
       <AtmosphereFX 
         weatherCode={activeWeather?.current.weatherCode ?? 0}
         isDay={activeWeather?.current.isDay ?? true}
-        moonPhase={activeWeather?.daily.moonPhase?.[0] ?? 0}
+        moonPhase={getMoonPhaseInfo().phase}
         locationName={activeLocation?.name ?? ''}
       />
 
-      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] h-24 z-[100] pointer-events-none">
+      <div id="ui-overlay" className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] z-[100] pointer-events-none pt-[env(safe-area-inset-top)]">
         <motion.div 
-          className="w-full h-full relative"
+          className="w-full h-32 relative"
           initial={false}
           animate={{
-            y: (headerVisible && !isSwiping) ? 0 : -100,
+            y: (headerVisible && !isSwiping) ? 0 : -120,
             opacity: (headerVisible && !isSwiping) ? 1 : 0,
           }}
           transition={{ 
@@ -797,7 +802,7 @@ export default function App() {
           }}
         >
           {/* Add City Button - Top Left */}
-          <motion.div className="absolute left-6 top-6 pointer-events-auto">
+          <motion.div className="absolute left-6 top-8 pointer-events-auto">
             <motion.button 
               onClick={() => {
                 Haptic.light(state.settings.hapticEnabled);
@@ -819,7 +824,7 @@ export default function App() {
           </motion.div>
 
           {/* Settings Button - Top Right */}
-          <motion.div className="absolute right-6 top-6 pointer-events-auto">
+          <motion.div className="absolute right-6 top-8 pointer-events-auto">
             <motion.button 
               onClick={toggleSettings}
               className="group active:scale-95 transition-all w-12 h-12 flex items-center justify-center"
@@ -856,7 +861,7 @@ export default function App() {
           </motion.div>
 
           {/* City Name & Pagination - Center */}
-          <div className="absolute left-1/2 -translate-x-1/2 top-6 flex flex-col items-center pointer-events-none mt-2">
+          <div className="absolute left-1/2 -translate-x-1/2 top-8 flex flex-col items-center pointer-events-none mt-2">
             <AnimatePresence mode="wait">
               <motion.div 
                 key={activeLocation?.id || activeLocation?.name || 'loading'}
@@ -882,7 +887,7 @@ export default function App() {
                   </motion.div>
                 )}
 
-                <div className="flex gap-1.5 mt-1.5">
+                <div id="city-dots" className="flex gap-1.5 mt-1.5">
                   {state.locations.map((_, i) => (
                     <button 
                       key={i} 
@@ -964,10 +969,51 @@ export default function App() {
       </AnimatePresence>
 
       <main 
-        className="max-w-[390px] mx-auto px-6 pt-24 pb-32 min-h-screen relative touch-pan-y"
+        className="max-w-[390px] mx-auto px-6 pt-[calc(env(safe-area-inset-top)+112px)] pb-32 min-h-screen relative touch-pan-y bottom-content"
       >
         {/* Pull to refresh logic handled by gestures.ts */}
         
+        <AnimatePresence>
+          {locationPermissionError && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="mb-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl flex gap-3 relative overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-blue-500/5 animate-pulse" />
+              <Icons.Navigation className="w-5 h-5 text-blue-400 flex-shrink-0" />
+              <div className="flex flex-col gap-1 relative z-10">
+                <p className="text-[11px] font-black text-blue-400 uppercase tracking-widest leading-none mb-1">Location Services</p>
+                <p className="text-[13px] text-app-text-dim leading-relaxed">
+                  Weather accuracy is better with GPS. Please enable device location and allow browser access.
+                </p>
+                <button 
+                  onClick={() => setLocationPermissionError(false)}
+                  className="text-[10px] font-bold text-app-text/40 uppercase tracking-widest mt-2 hover:text-app-text transition-colors text-left"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {isOffline && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mb-6 p-4 bg-orange-500/10 border border-orange-500/20 rounded-2xl flex items-center gap-3 relative"
+            >
+              <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
+              <div className="flex flex-col">
+                <p className="text-[11px] font-black text-orange-500 uppercase tracking-widest leading-none mb-1">Offline Mode</p>
+                <p className="text-[12px] text-app-text-dim">You're viewing cached data. Reconnect to sync.</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {activeWeather && (
           <AlertsDisplay 
             alerts={activeAlerts} 

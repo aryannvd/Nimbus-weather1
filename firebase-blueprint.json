@@ -1,0 +1,74 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Notification Preferences",
+      "description": "Subscribed users registered with OneSignal player references and specific custom weather triggers.",
+      "type": "object",
+      "properties": {
+        "playerId": {
+          "type": "string",
+          "description": "OneSignal player subscription identifier"
+        },
+        "timezone": {
+          "type": "string",
+          "description": "Local user timezone string"
+        },
+        "rainThreshold": {
+          "type": "integer",
+          "description": "Rain warning threshold percentage"
+        },
+        "snowThreshold": {
+          "type": "integer",
+          "description": "Snow warning threshold percentage"
+        },
+        "alertRainEnabled": {
+          "type": "boolean",
+          "description": "Enable push on rain probability threshold"
+        },
+        "alertSnowEnabled": {
+          "type": "boolean",
+          "description": "Enable push on snow probability threshold"
+        },
+        "alertThunderstormEnabled": {
+          "type": "boolean",
+          "description": "Enable thunderstorm alerts"
+        },
+        "alertSevereEnabled": {
+          "type": "boolean",
+          "description": "Enable severe context alerts"
+        },
+        "alertMorningSummaryEnabled": {
+          "type": "boolean",
+          "description": "Enable AI summary reports at 8 AM local time"
+        },
+        "alertNightSummaryEnabled": {
+          "type": "boolean",
+          "description": "Enable AI summary reports at 9 PM local time"
+        },
+        "latitude": {
+          "type": "number",
+          "description": "Saved User Latitude coordinates"
+        },
+        "longitude": {
+          "type": "number",
+          "description": "Saved User Longitude coordinates"
+        },
+        "cityName": {
+          "type": "string",
+          "description": "User City Name"
+        },
+        "countryCode": {
+          "type": "string",
+          "description": "User Country Code"
+        }
+      },
+      "required": ["playerId", "timezone", "rainThreshold", "snowThreshold"]
+    }
+  },
+  "firestore": {
+    "/users/{playerId}": {
+      "schema": "User",
+      "description": "Keyed by OneSignal Player ID, containing notification settings and preferences."
+    }
+  }
+}

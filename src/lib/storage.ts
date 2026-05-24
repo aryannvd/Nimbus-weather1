@@ -32,6 +32,11 @@ export function getCachedWeatherData(locationKey: string): { data: WeatherData; 
     const cache = JSON.parse(cacheRaw);
     const cached = cache[locationKey];
     if (!cached || !cached.data) return null;
+    // Validate required fields to ensure no corrupted/incomplete data is loaded
+    const d = cached.data;
+    if (!d.current || !d.hourly || !d.daily || !d.timezone) {
+      return null;
+    }
     return cached;
   } catch {
     return null;

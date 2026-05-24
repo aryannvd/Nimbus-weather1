@@ -280,3 +280,142 @@ input[type=range]:active::-webkit-slider-thumb {
   transform: scale(1.15);
 }
 
+/* Precise selector targeting the SVG to set its inline filter and glow dynamically */
+div#root:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > svg:nth-of-type(1),
+.main-weather-svg-icon {
+  filter: drop-shadow(0 0 35px var(--weather-glow-color, rgba(255, 255, 255, 0.2)));
+  transition: filter 0.5s ease-in-out !important;
+}
+
+body, html {
+  transition: background 0.6s ease-in-out, background-color 0.15s ease-out, color 0.15s ease-out;
+}
+
+@keyframes spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes locationPulse {
+  0%, 100% { 
+    transform: scale(1); 
+    opacity: 1; 
+  }
+  50% { 
+    transform: scale(1.2); 
+    opacity: 0.7; 
+  }
+}
+
+/* ============================================
+   FAST CITY SWITCHING & TAP DELAY FIXES
+   ============================================ */
+
+.no-animations *,
+.no-animations *::before,
+.no-animations *::after {
+  animation: none !important;
+  transition: none !important;
+  animation-play-state: paused !important;
+}
+
+/* Exception — keep swipe slide animation only */
+.no-animations #swipe-layer {
+  transition: transform 0.25s ease !important;
+}
+
+/* Global touch delay suppression */
+html {
+  touch-action: manipulation !important;
+}
+
+button,
+[role="button"],
+input[type="checkbox"],
+input[type="range"],
+select,
+.toggle,
+[class*="btn"],
+[class*="button"],
+[class*="toggle"],
+[class*="switch"] {
+  touch-action: manipulation !important;
+  cursor: pointer !important;
+  -webkit-tap-highlight-color: transparent !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+@keyframes shimmer {
+  0%   { opacity: 0.4; }
+  50%  { opacity: 0.8; }
+  100% { opacity: 0.4; }
+}
+
+/* ============================================
+   GPU ACCELERATED ANIMATION OPTIMIZATIONS
+   ============================================ */
+
+/* Force all animations to GPU */
+.atmosphere,
+.gradient-bg,
+.particles,
+.weather-animation,
+.rain-container,
+.snow-container,
+.cloud-container,
+.sun-rays,
+.lightning,
+.fog-layer,
+[class*="animate"],
+[class*="particle"],
+[class*="weather-fx"],
+[class*="atmosphere"],
+[class*="gradient"],
+[class*="background-fx"] {
+  transform: translateZ(0) !important;
+  will-change: transform, opacity !important;
+  backface-visibility: hidden !important;
+  -webkit-backface-visibility: hidden !important;
+  perspective: 1000px !important;
+  -webkit-perspective: 1000px !important;
+  contain: strict !important;
+}
+
+/* Contain properties */
+.atmosphere,
+[class*="weather-fx"],
+[class*="particle"],
+[class*="animate"] {
+  contain: strict !important;
+  isolation: isolate !important;
+}
+
+/* Weather animation wrapper */
+.weather-animation-container {
+  position: absolute;
+  inset: 0;
+  contain: strict !important;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateZ(0) !important;
+  will-change: transform !important;
+  z-index: 0;
+}
+
+/* Content sits above animations */
+.weather-content {
+  position: relative;
+  z-index: 1;
+  transform: translateZ(0) !important;
+}
+
+/* CSS for reduced mode */
+.reduced-animations [class*="particle"]:nth-child(2n) {
+  display: none !important;
+}
+
+.reduced-animations [class*="animate"] {
+  animation-duration: calc(var(--anim-duration, 3s) * 2) !important;
+}
+

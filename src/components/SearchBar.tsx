@@ -80,20 +80,20 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
       }}
       className="fixed inset-0 z-[100] bg-app-bg/90 backdrop-blur-2xl flex flex-col pt-[calc(env(safe-area-inset-top)+24px)]"
     >
-      <div className="max-w-[390px] mx-auto w-full px-6 flex flex-col h-full">
-        <header className="flex items-center gap-4 mb-8">
+      <div className="max-w-[390px] mx-auto w-full px-4 sm:px-6 flex flex-col h-full">
+        <header className="flex items-center gap-3 sm:gap-4 mb-8">
           <div className={cn(
-            "flex-1 flex items-center gap-3 px-4 py-3 bg-app-text/10 border border-app-border rounded-2xl transition-all duration-300",
+            "flex-1 min-w-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 bg-app-text/10 border border-app-border rounded-2xl transition-all duration-300",
             "focus-within:bg-app-text/15 focus-within:ring-1 focus-within:ring-app-text/20"
           )}>
-            <Icons.Search className="w-5 h-5 text-app-text-dim/40" />
+            <Icons.Search className="w-5 h-5 text-app-text-dim/40 flex-shrink-0" />
             <input
               ref={inputRef}
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search city..."
-              className="bg-transparent border-none outline-none flex-1 text-app-text placeholder:text-app-text-dim/60 text-[17px]"
+              className="bg-transparent border-none outline-none flex-1 min-w-0 text-app-text placeholder:text-app-text-dim/60 text-[17px]"
             />
             {query && (
               <button 
@@ -102,7 +102,7 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
                   setQuery(''); 
                   setRawResults([]); 
                 }} 
-                className="text-app-text-dim/40 hover:text-app-text"
+                className="text-app-text-dim/40 hover:text-app-text flex-shrink-0"
               >
                 <Icons.X className="w-5 h-5 bg-app-text/10 rounded-full p-1" />
               </button>
@@ -113,7 +113,7 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
               Haptic.light(hapticEnabled);
               onClose();
             }}
-            className="text-[17px] font-medium text-app-text-dim hover:text-app-text transition-colors"
+            className="text-[17px] font-medium text-app-text-dim hover:text-app-text transition-colors flex-shrink-0 whitespace-nowrap"
           >
             Cancel
           </button>

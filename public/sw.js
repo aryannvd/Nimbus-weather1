@@ -31,7 +31,6 @@ self.addEventListener("fetch", e => {
   if (
     url.hostname.includes("open-meteo.com") ||
     url.hostname.includes("waqi.info") ||
-    url.hostname.includes("openweathermap.org") ||
     url.hostname.includes("geocoding-api.open-meteo.com")
   ) {
     e.respondWith(

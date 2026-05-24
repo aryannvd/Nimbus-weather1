@@ -12,6 +12,7 @@ interface WeatherDetailsProps {
 }
 
 export default function WeatherDetails({ weather, settings }: WeatherDetailsProps) {
+  if (!weather || !weather.current) return null;
   const aqi = weather.airQuality;
   
   const getCurrentIndex = () => {
@@ -65,98 +66,110 @@ export default function WeatherDetails({ weather, settings }: WeatherDetailsProp
 
   return (
     <div className="flex flex-col gap-6 px-0">
-      {/* 1. Robust AQI Card (Full Width) */}
-      <div className="w-full bg-app-surface backdrop-blur-[32px] border border-app-border rounded-[32px] pt-5 pb-6 px-6 flex flex-col gap-5 overflow-hidden shadow-2xl relative">
+      {/* 1. Enhanced AQI Card (Full Width) */}
+      <div className="w-full bg-app-surface backdrop-blur-[32px] border border-app-border rounded-[32px] pt-6 pb-7 px-6 flex flex-col gap-6 overflow-hidden shadow-2xl relative group">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-app-text/5 flex items-center justify-center">
-              <WeatherIcon name="Wind" className="w-4 h-4" strokeWidth={2} forceColoured={true} />
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-app-text/5 flex items-center justify-center transition-transform group-hover:scale-110 duration-500">
+              <WeatherIcon name="Wind" className="w-5 h-5" strokeWidth={2} forceColoured={true} />
             </div>
-            <span className="text-[12px] font-bold tracking-[0.1em] uppercase text-app-text-dim">Air Quality</span>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black tracking-[0.15em] uppercase text-app-text-dim/60 leading-none mb-1">Air Quality</span>
+              <span className="text-[13px] font-bold text-app-text tracking-tight uppercase">WAQI Station Data</span>
+            </div>
           </div>
-          {aqi && (
-            <div className="flex items-center gap-2">
-              <div className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-full border",
-                aqi.isStale ? "bg-orange-500/10 border-orange-500/20" : "bg-app-text/5 border-app-border"
-              )}>
-                {!aqi.isStale && <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: aqi.color }} />}
-                <span className={cn(
-                  "text-[10px] font-bold uppercase tracking-widest",
-                  aqi.isStale ? "text-orange-400" : "text-app-text-dim"
-                )}>
-                  {aqi.freshnessLabel || 'Live'}
-                </span>
-              </div>
-            </div>
-          )}
         </div>
 
         {!aqi ? (
-          <div className="py-8 flex flex-col items-center gap-3">
-             <div className="w-10 h-10 rounded-full border-2 border-dashed border-app-border animate-spin-slow" />
-             <span className="text-app-text-dim text-sm font-medium">AQI unavailable</span>
+          <div className="py-12 flex flex-col items-center gap-4 text-center">
+             <div className="w-12 h-12 rounded-full border-2 border-dashed border-app-border animate-spin-slow flex items-center justify-center">
+                <WeatherIcon name="Info" className="w-5 h-5 text-app-text-dim/40" />
+             </div>
+             <div className="flex flex-col gap-1">
+               <span className="text-app-text font-bold text-base tracking-tight">AQI Data Unavailable</span>
+               <p className="text-app-text-dim text-xs max-w-[200px] leading-relaxed">
+                 We couldn't reach the air quality station for this location right now.
+               </p>
+             </div>
           </div>
         ) : (
           <>
             <div className="flex items-end justify-between">
               <div className="flex flex-col gap-1">
-                <span className="text-6xl font-[200] tracking-tighter text-app-text leading-none">
-                  {aqi.isUnavailable ? "--" : aqi.usAqi}
-                </span>
-                <div className="flex flex-col mt-2">
-                  <span className="text-[17px] font-semibold tracking-tight leading-tight" style={{ color: aqi.isUnavailable ? 'inherit' : aqi.color }}>
-                    {aqi.isUnavailable ? "No live data for this city" : aqi.description}
+                <div className="flex items-baseline gap-2">
+                  <span className="text-7xl font-[200] tracking-tighter text-app-text leading-none">
+                    {aqi.isUnavailable ? "--" : aqi.usAqi}
                   </span>
-                  {aqi.lastUpdated && !aqi.isUnavailable && (
-                    <span className="text-[10px] text-app-text-dim/60 font-bold uppercase tracking-wider mt-1">
-                      Updated: {(() => {
-                        try {
-                          const date = new Date(aqi.lastUpdated.replace(' ', 'T'));
-                          return date.toLocaleTimeString("en-US", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            hour12: true
-                          });
-                        } catch (e) {
-                          return aqi.lastUpdated;
-                        }
-                      })()} LOCAL TIME
-                    </span>
-                  )}
+                  <span className="text-[13px] font-black text-app-text-dim uppercase tracking-widest mb-1.5">
+                    {(aqi.standardLabel || 'AQI · US Standard').replace(/^AQI\s*[·•]\s*/i, '')}
+                  </span>
+                </div>
+                <div className="flex flex-col mt-3">
+                  <span className="text-[20px] font-bold tracking-tight leading-tight flex items-center gap-2" style={{ color: aqi.isUnavailable ? 'inherit' : aqi.color }}>
+                    {aqi.isUnavailable ? "Limited Data Availability" : aqi.description}
+                  </span>
+                  {aqi.lastUpdated && !aqi.isUnavailable && (() => {
+                    let ageHours = 0;
+                    try {
+                      const cleanTime = aqi.lastUpdated.includes(' ') && !aqi.lastUpdated.includes('T') ? aqi.lastUpdated.replace(' ', 'T') : aqi.lastUpdated;
+                      const updated = new Date(cleanTime);
+                      ageHours = (Date.now() - updated.getTime()) / (1000 * 60 * 60);
+                    } catch {
+                      ageHours = 999;
+                    }
+
+                    let labelColor = "#4ade80";
+                    let labelText = "Live";
+
+                    if (ageHours > 6) {
+                      labelColor = "#f59e0b";
+                      labelText = `⚠ Data from ${Math.round(ageHours)}h ago`;
+                    } else if (ageHours > 2) {
+                      labelColor = "#94a3b8";
+                      labelText = `Updated ${Math.round(ageHours)}h ago`;
+                    }
+
+                    return (
+                      <span className="text-[10px] font-black uppercase tracking-[0.1em] mt-2 flex items-center gap-1.5 aqi-time aqi-updated">
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: labelColor }} />
+                        <span style={{ color: labelColor }}>{labelText}</span>
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-col gap-2 mt-1">
-              <div className="w-full h-[8px] rounded-full bg-app-text/5 relative overflow-hidden group">
+            <div className="flex flex-col gap-2 mt-2">
+              <div className="w-full h-[10px] rounded-full bg-app-text/5 relative overflow-hidden">
                 {/* Visual Gradient Track based on defined categories */}
-                <div className="absolute inset-0 bg-gradient-to-r from-[#32D74B] via-[#FFD60A] via-[#FF9F0A] via-[#FF453A] via-[#BF5AF2] to-[#8E3020]" />
+                <div className="absolute inset-0 bg-gradient-to-r from-[#32D74B] via-[#FFD60A] via-[#FF9F0A] via-[#FF453A] via-[#BF5AF2] to-[#8E3020] opacity-90" />
                 
                 {/* Indicator Thumb */}
                 <motion.div 
-                  className="absolute top-0 w-3 h-full bg-app-text shadow-[0_0_10px_rgba(255,255,255,0.8)] border border-black/10 z-10"
-                  style={{ borderRadius: '4px' }}
+                  className="absolute top-0 w-4 h-full bg-app-text shadow-[0_0_15px_rgba(255,255,255,1)] border-x border-black/20 z-10"
+                  style={{ borderRadius: '9999px' }}
                   initial={{ left: '0%', x: '0%' }}
                   animate={{ 
                     left: `${Math.min(100, (aqi.usAqi / 500) * 100)}%`,
                     x: `-${Math.min(100, (aqi.usAqi / 500) * 100)}%` 
                   }}
-                  transition={{ duration: 1.5, ease: "easeOut" }}
+                  transition={{ duration: 1.8, ease: [0.34, 1.56, 0.64, 1] }}
                 />
-              </div>
-              <div className="flex justify-between px-0.5">
-                 <span className="text-[9px] font-bold text-app-text-dim/40">0</span>
-                 <span className="text-[9px] font-bold text-app-text-dim/40">500</span>
               </div>
             </div>
 
-            <div className="bg-app-text/[0.03] rounded-2xl p-4 border border-app-border">
-              <p className="text-[13px] text-app-text/70 font-medium leading-[1.4] mb-4">
-                {aqi.recommendation}
-              </p>
+            <div className="bg-app-text/[0.04] rounded-[24px] p-5 border border-app-border/50">
+              <div className="flex gap-4 items-start">
+                <div className="w-8 h-8 rounded-full bg-app-text/5 shrink-0 flex items-center justify-center">
+                  <WeatherIcon name="Info" className="w-4 h-4 text-app-text/40" />
+                </div>
+                <p className="text-[14px] text-app-text/80 font-medium leading-[1.5] py-1">
+                  {aqi.recommendation}
+                </p>
+              </div>
               
-              <div className="grid grid-cols-5 gap-2 pt-4 border-t border-app-border">
+              <div className="grid grid-cols-5 gap-3 pt-5 mt-5 border-t border-app-border/30">
                 {[
                   { label: 'PM2.5', value: aqi.pm2_5, unit: 'µg/m³' },
                   { label: 'PM10', value: aqi.pm10, unit: 'µg/m³' },
@@ -164,11 +177,11 @@ export default function WeatherDetails({ weather, settings }: WeatherDetailsProp
                   { label: 'NO₂', value: aqi.no2, unit: 'µg/m³' },
                   { label: 'O₃', value: aqi.o3, unit: 'µg/m³' }
                 ].map((p, i) => (
-                  <div key={i} className="flex flex-col gap-1">
-                    <span className="text-[9px] font-black text-app-text-dim/40 uppercase tracking-tighter truncate">{p.label}</span>
+                  <div key={i} className="flex flex-col gap-1.5">
+                    <span className="text-[9px] font-black text-app-text-dim/50 uppercase tracking-[0.05em] truncate">{p.label}</span>
                     <div className="flex flex-col">
-                      <span className="text-[14px] font-semibold text-app-text">{Math.round(p.value || 0)}</span>
-                      <span className="text-[8px] text-app-text-dim font-bold leading-none">{p.unit}</span>
+                      <span className="text-[16px] font-bold text-app-text tracking-tighter leading-none">{Math.round(p.value || 0)}</span>
+                      <span className="text-[9px] text-app-text-dim/60 font-bold leading-tight mt-0.5">{p.unit}</span>
                     </div>
                   </div>
                 ))}

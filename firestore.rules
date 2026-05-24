@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Safely allow read/write for OneSignal player preferences mapped by playerId
+    match /users/{playerId} {
+      allow read: if true;
+      allow create, update: if true
+        && playerId is string && playerId.size() <= 128
+        && request.resource.data.playerId == playerId;
+      allow delete: if false;
+    }
+
+    // Capture all other endpoints and deny by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

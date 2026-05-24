@@ -1,7 +1,7 @@
 import React from 'react';
 import { WeatherData, Location, Settings } from '../types';
 import { WeatherIcon, Icons } from './WeatherIcons';
-import { getHourlyIcon, getMoonPhaseInfo } from '../services/weatherService';
+import { getCurrentWeatherState, getMoonPhaseInfo } from '../services/weatherService';
 import { formatTemp } from '../lib/units';
 import { motion } from 'motion/react';
 import { format, parseISO } from 'date-fns';
@@ -18,7 +18,8 @@ interface WeatherHeroProps {
 }
 
 export default function WeatherHero({ weather, location, settings, onRefresh, isRefreshing }: WeatherHeroProps) {
-  const info = getHourlyIcon(weather.current.precipitation, !weather.current.isDay);
+  if (!weather || !weather.current) return null;
+  const info = getCurrentWeatherState(weather);
   const moonPhase = getMoonPhaseInfo(weather.daily.moonPhase?.[0] ?? 0);
 
   const formatDate = (dateStr: string) => {
@@ -73,6 +74,7 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
 
             {onRefresh && (
               <motion.button
+                id="refresh-btn"
                 onClick={() => {
                   Haptic.medium(settings.hapticEnabled);
                   onRefresh();
@@ -93,12 +95,12 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-        className="mb-4"
+        className="mb-4 flex flex-col items-center"
       >
         <WeatherIcon 
           name={info.icon as any} 
           style={settings.iconStyle}
-          className="w-32 h-32 text-app-text drop-shadow-[0_0_30px_var(--border-color)]" 
+          className="w-32 h-32 text-app-text main-weather-svg-icon" 
           strokeWidth={1.2} 
         />
       </motion.div>

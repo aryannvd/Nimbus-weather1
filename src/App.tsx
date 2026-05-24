@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { formatTemp } from './lib/units';
 import { Location, WeatherData, WeatherState, Settings } from './types';
-import { fetchWeather, fetchWeatherBulk, getMoonPhaseInfo, getCurrentHourIndex } from './services/weatherService';
+import { fetchWeather, fetchWeatherBulk, getMoonPhaseInfo, getCurrentHourIndex, reverseGeocode, getCurrentWeatherState, fetchAQI, mapWAQIResultToAirQuality, getDataAgeHours } from './services/weatherService';
 import { getCachedWeatherData, saveWeatherData, STORAGE_KEYS, getCityKey, CACHE_EXPIRY } from './lib/storage';
 import { initGestures } from './lib/gestures';
 import WeatherSkeleton from './components/WeatherSkeleton';
@@ -20,14 +20,7 @@ import AlertsDisplay from './components/AlertsDisplay';
 import { Haptic } from './lib/haptics';
 import { format } from 'date-fns';
 
-const DEFAULT_LOCATION: Location = {
-  id: 2643743,
-  name: "London",
-  latitude: 51.50853,
-  longitude: -0.12574,
-  country: "United Kingdom",
-  timezone: "Europe/London"
-};
+const DEFAULT_LOCATION: Location | null = null;
 
 const INITIAL_SETTINGS: Settings = {
   unitTemp: 'C',
@@ -46,7 +39,218 @@ const INITIAL_SETTINGS: Settings = {
   alertSevere: true,
   alertTrip: true,
   alertDaily: true,
-  alertRealtime: false
+  alertRealtime: false,
+  timeFormat: '12h',
+  pushEnabled: false,
+  alertMorningSummary: false,
+  alertNightSummary: false,
+  gradientAnimation: 'on'
+};
+
+const LocationState = {
+  hasLocation:     false,
+  isLoading:       false,
+  lat:             null as number | null,
+  lon:             null as number | null,
+  cityName:        null as string | null,
+  lastUpdated:     null as number | null,
+  permissionState: null as string | null, // "granted"|"denied"|"prompt"
+
+  save() {
+    localStorage.setItem("location_state", JSON.stringify({
+      hasLocation: this.hasLocation,
+      lat:         this.lat,
+      lon:         this.lon,
+      cityName:    this.cityName,
+      lastUpdated: this.lastUpdated,
+    }));
+  },
+
+  load() {
+    const saved = localStorage.getItem("location_state");
+    if (!saved) return false;
+    try {
+      const s = JSON.parse(saved);
+      this.hasLocation = s.hasLocation;
+      this.lat         = s.lat;
+      this.lon         = s.lon;
+      this.cityName    = s.cityName;
+      this.lastUpdated = s.lastUpdated;
+      return this.hasLocation;
+    } catch { return false; }
+  },
+
+  clear() {
+    this.hasLocation = false;
+    this.lat         = null;
+    this.lon         = null;
+    this.cityName    = null;
+    this.lastUpdated = null;
+    localStorage.removeItem("location_state");
+  }
+};
+
+// Background AQI refresh tracking variables
+let aqiRefreshInterval: any = null;
+const lastAQIFetch: Record<string, number> = {};
+
+// Fast switching & tap helpers
+const pauseAnimationsOnCard = (cardEl: HTMLElement) => {
+  cardEl.querySelectorAll(
+    "[class*='animate'], " +
+    "[class*='particle'], " +
+    "[class*='atmosphere'], " +
+    "[class*='weather-fx']"
+  ).forEach(el => {
+    (el as HTMLElement).style.animationPlayState = "paused";
+    (el as HTMLElement).style.willChange = "auto";
+  });
+};
+
+const resumeAnimationsOnCard = (cardEl: HTMLElement) => {
+  cardEl.querySelectorAll(
+    "[class*='animate'], " +
+    "[class*='particle'], " +
+    "[class*='atmosphere'], " +
+    "[class*='weather-fx']"
+  ).forEach(el => {
+    (el as HTMLElement).style.animationPlayState = "running";
+    (el as HTMLElement).style.willChange = "transform, opacity";
+  });
+};
+
+const disableAllAnimations = () => {
+  if (typeof window !== 'undefined') {
+    document.body.classList.add("no-animations");
+    document.querySelectorAll(".city-card, .atmosphere").forEach(card => {
+      pauseAnimationsOnCard(card as HTMLElement);
+    });
+  }
+};
+
+const enableAllAnimations = () => {
+  if (typeof window !== 'undefined') {
+    requestAnimationFrame(() => {
+      document.body.classList.remove("no-animations");
+      document.querySelectorAll(
+        "[class*='animate'], " +
+        "[class*='particle'], " +
+        "[class*='atmosphere']"
+      ).forEach(el => {
+        (el as HTMLElement).style.animationPlayState = "running";
+      });
+      // Resume only active card after render
+      const activeCard = document.querySelector("#swipe-layer") as HTMLElement;
+      if (activeCard) {
+        resumeAnimationsOnCard(activeCard);
+      }
+      const atmosphere = document.querySelector(".atmosphere") as HTMLElement;
+      if (atmosphere) {
+        resumeAnimationsOnCard(atmosphere);
+      }
+    });
+  }
+};
+
+// Step 4: Throttled rAF loop for lightweight animation coordination
+if (typeof window !== 'undefined') {
+  let lastFrame = 0;
+  const FPS_LIMIT = 30;
+  const FRAME_MIN_TIME = 1000 / FPS_LIMIT;
+
+  const updateParticles = () => {
+    // Coordinate/sync particles at 30fps
+  };
+
+  const updateWeatherFX = () => {
+    // Coordinate/sync weatherFX at 30fps
+  };
+
+  const animationLoop = (timestamp: number) => {
+    if (timestamp - lastFrame < FRAME_MIN_TIME) {
+      requestAnimationFrame(animationLoop);
+      return;
+    }
+    lastFrame = timestamp;
+
+    updateParticles();
+    updateWeatherFX();
+
+    requestAnimationFrame(animationLoop);
+  };
+
+  requestAnimationFrame(animationLoop);
+}
+
+// Step 6: Power savings / reduced motion animation check
+if (typeof window !== 'undefined') {
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const checkBattery = async () => {
+    const nav = navigator as any;
+    if (!nav.getBattery) return false;
+    try {
+      const battery = await nav.getBattery();
+      return battery.level < 0.2; // below 20%
+    } catch {
+      return false;
+    }
+  };
+
+  const shouldReduceAnimations = async () => {
+    const lowBattery = await checkBattery();
+    return prefersReducedMotion || lowBattery;
+  };
+
+  shouldReduceAnimations().then(reduce => {
+    if (reduce) {
+      document.body.classList.add("reduced-animations");
+    }
+  });
+}
+
+const showCitySkeleton = () => {
+  if (typeof window !== 'undefined') {
+    const skeleton = document.getElementById("city-skeleton");
+    if (skeleton) {
+      skeleton.style.display = "flex";
+      skeleton.style.opacity = "1";
+    }
+  }
+};
+
+const hideCitySkeleton = () => {
+  if (typeof window !== 'undefined') {
+    const skeleton = document.getElementById("city-skeleton");
+    if (!skeleton) return;
+    skeleton.style.opacity = "0";
+    setTimeout(() => {
+      const currentSkeleton = document.getElementById("city-skeleton");
+      if (currentSkeleton) {
+        currentSkeleton.style.display = "none";
+      }
+    }, 200);
+  }
+};
+
+const addInstantTap = (selector: string, handler: (e: any) => void, hapticEnabled = true) => {
+  if (typeof window === 'undefined') return;
+  const elements = document.querySelectorAll(selector);
+  elements.forEach(el => {
+    let tapped = false;
+
+    el.addEventListener("touchstart", (e) => {
+      tapped = true;
+      handler(e);
+      Haptic.light(hapticEnabled);
+    }, { passive: true });
+
+    // Fallback for non-touch
+    el.addEventListener("click", (e) => {
+      if (!tapped) handler(e);
+      tapped = false;
+    });
+  });
 };
 
 export default function App() {
@@ -63,6 +267,7 @@ export default function App() {
         parsed.theme = 'black';
         if (!parsed.unitPrecipitation) parsed.unitPrecipitation = 'mm';
         if (parsed.iconStyle === '3d') parsed.iconStyle = 'outline';
+        if (!parsed.gradientAnimation) parsed.gradientAnimation = 'on';
         cachedSettings = parsed;
       }
       
@@ -75,8 +280,31 @@ export default function App() {
       console.warn('Failed to parse cached weather data', e);
     }
     
-    const initialLocations: Location[] = cachedLocations || [];
-    const initialIndex = cachedIndex || 0;
+    // Load state from LocationState cache
+    const hasSaved = LocationState.load();
+    let currentLoc: Location | null = null;
+    if (hasSaved && LocationState.lat !== null && LocationState.lon !== null && LocationState.cityName && LocationState.cityName !== "Current Location") {
+      currentLoc = {
+        id: 0,
+        name: LocationState.cityName,
+        latitude: LocationState.lat,
+        longitude: LocationState.lon,
+        country: "Nearby",
+        timezone: "auto",
+        isCurrentLocation: true,
+        isGeolocated: true,
+        icon: "📍"
+      };
+    }
+
+    let initialLocations: Location[] = (cachedLocations || []).filter((loc: Location) => !loc.isCurrentLocation);
+    if (currentLoc) {
+      initialLocations.unshift(currentLoc);
+    }
+
+    // Do not add any default city - let the user decide.
+
+    const initialIndex = cachedIndex !== null ? Math.max(0, Math.min(cachedIndex, initialLocations.length - 1)) : 0;
     const initialWeatherData: Record<number, WeatherData> = {};
     
     // Attempt absolute zero-lag hydration of weather data from cache
@@ -97,110 +325,774 @@ export default function App() {
       locations: initialLocations,
       activeLocationIndex: initialIndex,
       weatherData: initialWeatherData,
-      loading: initialLocations.length > 0 && initialWeatherData[initialIndex] ? false : true,
+      loading: initialLocations.length > 0 && !initialWeatherData[initialIndex],
       error: null,
       showSettings: false,
       settings: cachedSettings || INITIAL_SETTINGS
     };
   });
 
-  // Consolidated startup logic: Hydrate and background refresh
+  const stateRef = useRef(state);
   useEffect(() => {
-    const isMounted = { current: true };
-    const startup = async () => {
-      const hasLocations = state.locations.length > 0;
-      const isFirstCurrent = hasLocations && state.locations[0].name === "Current Location";
+    stateRef.current = state;
+  }, [state]);
 
-      if (!hasLocations || isFirstCurrent) {
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            async (pos) => {
-              if (!isMounted.current) return;
-              let timezone = 'UTC';
-              try {
-                timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-              } catch (e) {
-                console.warn('Failed to detect timezone, falling back to UTC', e);
-              }
+  const refreshAQIForIndex = async (index: number) => {
+    const locations = stateRef.current.locations;
+    const city = locations[index];
+    if (!city) return;
 
-              const myLocation: Location = {
-                id: 0,
-                name: "Current Location",
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-                country: "Nearby",
-                timezone
-              };
+    const cityKey = getCityKey(city);
+    console.log("Fetching AQI for:", city.name);
 
-              if (!hasLocations) {
-                addLocation(myLocation);
-              } else {
-                // Update existing "Current Location"
-                setState(prev => {
-                  const newLocs = [...prev.locations];
-                  newLocs[0] = myLocation;
-                  return { 
-                    ...prev, 
-                    locations: newLocs,
-                    loading: true // Show loading while fetching fresh data for new coordinates
-                  };
-                });
-                
-                // Fetch fresh weather for the new coordinates
-                try {
-                  const data = await fetchWeather(myLocation.latitude, myLocation.longitude, myLocation.timezone, myLocation.name);
-                  if (!isMounted.current) return;
-                  saveWeatherData(getCityKey(myLocation), data);
-                  setState(prev => ({
-                    ...prev,
-                    weatherData: { ...prev.weatherData, [0]: data },
-                    loading: false
-                  }));
-                } catch (err) {
-                  if (isMounted.current) {
-                    console.warn("Failed to fetch weather for updated current location:", err);
-                    setState(prev => ({ ...prev, loading: false }));
-                  }
-                }
+    try {
+      const aqiRaw = await fetchAQI(city.name, city.latitude, city.longitude);
+      if (!aqiRaw) {
+        console.warn("AQI fetch returned null for:", city.name);
+        return;
+      }
 
-                // Also trigger batch load for rest if needed
-                if (state.locations.length > 1) {
-                   loadWeatherBatch(state.locations.slice(1), 1);
-                }
-              }
-            },
-            (err) => {
-              if (isMounted.current) {
-                console.warn("Geolocation failed or denied:", err.message);
-                if (err.code === err.PERMISSION_DENIED) {
-                  setLocationPermissionError(true);
-                }
-                if (!hasLocations) {
-                  addLocation(DEFAULT_LOCATION);
-                } else {
-                  loadWeatherBatch(state.locations);
-                }
-              }
-            },
-            { timeout: 10000, enableHighAccuracy: true }
-          );
-        } else {
-          if (!hasLocations) {
-            addLocation(DEFAULT_LOCATION);
-          } else {
-            loadWeatherBatch(state.locations);
-          }
+      const parsedAQI = await mapWAQIResultToAirQuality(aqiRaw, city.name, city.country);
+      if (!parsedAQI) {
+        console.warn("AQI parse returned null for:", city.name);
+        return;
+      }
+
+      const ageHours = getDataAgeHours(parsedAQI.lastUpdated);
+      console.log(`AQI age for ${city.name}:`, ageHours.toFixed(1), "hours");
+
+      // Update timestamp
+      lastAQIFetch[cityKey] = Date.now();
+
+      // Update React State
+      setState(prev => {
+        if (prev.locations.length <= index || prev.locations[index]?.name !== city.name) {
+          return prev;
         }
-      } else {
-        // Just standard load
-        setTimeout(() => {
-          if (isMounted.current) loadWeatherBatch(state.locations);
-        }, 800);
+        const currentWeatherData = prev.weatherData[index];
+        if (!currentWeatherData) {
+          return prev;
+        }
+        return {
+          ...prev,
+          weatherData: {
+            ...prev.weatherData,
+            [index]: {
+              ...currentWeatherData,
+              airQuality: parsedAQI,
+            }
+          }
+        };
+      });
+
+      console.log("AQI refreshed:", {
+        city: city.name,
+        aqi: parsedAQI.usAqi,
+        updated: parsedAQI.lastUpdated
+      });
+    } catch (err) {
+      console.warn("Independent AQI background refresh failed:", err);
+    }
+  };
+
+  // Start independent AQI background refresh system on load (every 30 minutes)
+  useEffect(() => {
+    const startAQIRefresh = () => {
+      if (aqiRefreshInterval) {
+        clearInterval(aqiRefreshInterval);
+      }
+
+      aqiRefreshInterval = setInterval(async () => {
+        console.log("AQI background refresh firing...");
+        const activeIdx = stateRef.current.activeLocationIndex;
+        await refreshAQIForIndex(activeIdx);
+      }, 30 * 60 * 1000);
+
+      console.log("AQI background refresh started — every 30 min");
+    };
+
+    const stopAQIRefresh = () => {
+      if (aqiRefreshInterval) {
+        clearInterval(aqiRefreshInterval);
+        aqiRefreshInterval = null;
+        console.log("AQI background refresh stopped");
       }
     };
 
-    startup();
-    return () => { isMounted.current = false; };
+    startAQIRefresh();
+
+    const onVisibilityChange = async () => {
+      if (document.visibilityState === "visible") {
+        const locations = stateRef.current.locations;
+        const activeIndex = stateRef.current.activeLocationIndex;
+        const city = locations[activeIndex];
+        if (!city) return;
+
+        const cityKey = getCityKey(city);
+        const lastFetch = lastAQIFetch[cityKey] || 0;
+        const age = Date.now() - lastFetch;
+
+        if (age > 30 * 60 * 1000) {
+          console.log("AQI stale on return — refreshing");
+          await refreshAQIForIndex(activeIndex);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      stopAQIRefresh();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
+  // ALSO REFRESH AQI ON CITY SWITCH (if older than 30 min OR never fetched)
+  useEffect(() => {
+    const index = state.activeLocationIndex;
+    const city = state.locations[index];
+    if (!city) return;
+
+    const cityKey = getCityKey(city);
+    
+    if (!lastAQIFetch[cityKey]) {
+      const activeWeather = state.weatherData[index];
+      if (activeWeather?.fetchedAt) {
+        const age = Date.now() - activeWeather.fetchedAt;
+        if (age < 30 * 60 * 1000) {
+          lastAQIFetch[cityKey] = activeWeather.fetchedAt;
+        }
+      }
+    }
+
+    const lastFetch = lastAQIFetch[cityKey] || 0;
+    const age = Date.now() - lastFetch;
+
+    if (age > 30 * 60 * 1000 || !lastAQIFetch[cityKey]) {
+      console.log(`AQI stale or missing for switched city: ${city.name} — fetching now`);
+      refreshAQIForIndex(index);
+    }
+  }, [state.activeLocationIndex, state.locations, state.weatherData]);
+
+  // Silent background weather update on city change if cache is older than 10 mins
+  useEffect(() => {
+    const index = state.activeLocationIndex;
+    const city = state.locations[index];
+    if (!city) return;
+
+    const runSilentWeatherActiveSync = async () => {
+      const cityKey = getCityKey(city);
+      const cached = getCachedWeatherData(cityKey);
+      
+      let isStale = true;
+      if (cached) {
+        const cacheAge = Date.now() - cached.ts;
+        isStale = cacheAge > 10 * 60 * 1000;
+      }
+
+      if (isStale && navigator.onLine) {
+        console.log(`Silent background weather sync triggered for active city: ${city.name}`);
+        try {
+          const data = await fetchWeather(city.latitude, city.longitude, city.timezone, city.name, city.country);
+          saveWeatherData(cityKey, data);
+          setState(prev => {
+            if (prev.activeLocationIndex === index && prev.locations[index]?.name === city.name) {
+              return {
+                ...prev,
+                weatherData: { ...prev.weatherData, [index]: data }
+              };
+            }
+            return prev;
+          });
+        } catch (e) {
+          console.warn(`Active city silent sync failed for ${city.name}:`, e);
+        }
+      }
+    };
+
+    runSilentWeatherActiveSync();
+  }, [state.activeLocationIndex]);
+
+  // Step 5: Switch-to-city pausing handler to ensure no CPU waste and silky-smooth transitions
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Pause all cards & atmosphere immediately when transitioning index changes
+    document.querySelectorAll(".city-card, .atmosphere").forEach(card => {
+      pauseAnimationsOnCard(card as HTMLElement);
+    });
+
+    // Resume animations on ONLY the active elements after DOM updates are processed
+    const frameId = requestAnimationFrame(() => {
+      const activeCard = document.querySelector("#swipe-layer") as HTMLElement;
+      if (activeCard) {
+        resumeAnimationsOnCard(activeCard);
+      }
+      const atmosphere = document.querySelector(".atmosphere") as HTMLElement;
+      if (atmosphere) {
+        resumeAnimationsOnCard(atmosphere);
+      }
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [state.activeLocationIndex]);
+
+  const showRefreshSpinner = () => {
+    const el = document.getElementById("refresh-indicator");
+    if (el) el.style.display = "block";
+  };
+
+  const hideRefreshSpinner = () => {
+    const el = document.getElementById("refresh-indicator");
+    if (el) el.style.display = "none";
+  };
+
+  const showLocationLoading = () => {
+    const el = document.getElementById("location-loading-card");
+    if (el) el.style.display = "block";
+  };
+
+  const hideLocationLoading = () => {
+    const el = document.getElementById("location-loading-card");
+    if (el) el.style.display = "none";
+  };
+
+  const refreshWeather = async () => {
+    showRefreshSpinner();
+    try {
+      const locations = stateRef.current.locations;
+      await loadWeatherBatch(locations);
+      localStorage.setItem("last_refresh", Date.now().toString());
+    } catch (e) {
+      console.warn("Auto refresh failed:", e);
+    } finally {
+      hideRefreshSpinner();
+    }
+  };
+
+  const locationRefreshIntervalRef = useRef<any>(null);
+
+  const showLocationIndicator = (stateStr: "getting" | "updated") => {
+    if (stateStr === "getting") {
+      showLocationLoading();
+    }
+  };
+
+  const hideLocationIndicator = () => {
+    hideLocationLoading();
+  };
+
+  const showMinimalIndicator = (text: string) => {
+    const bar = document.getElementById("location-status-bar");
+    const spinner = document.getElementById("location-status-spinner");
+    const label = document.getElementById("location-status-text");
+
+    if (!bar || !label) return;
+
+    label.textContent = text;
+
+    if (text === "GETTING LOCATION") {
+      if (spinner) spinner.style.display = "block";
+      label.style.color = "#94a3b8";
+      bar.style.background = "#1e293b";
+    } else if (text === "LOCATION UPDATED") {
+      if (spinner) spinner.style.display = "none";
+      label.style.color = "#4ade80";
+      bar.style.background = "#14532d40";
+    }
+
+    bar.style.height = "28px";
+    const overlay = document.getElementById("ui-overlay");
+    if (overlay) overlay.style.paddingTop = "36px";
+  };
+
+  const hideMinimalIndicator = () => {
+    const bar = document.getElementById("location-status-bar");
+    if (bar) bar.style.height = "0";
+    const overlay = document.getElementById("ui-overlay");
+    if (overlay) overlay.style.paddingTop = "";
+  };
+
+  const showPermissionDeniedNotice = () => {
+    let notice = document.getElementById("permission-notice");
+
+    if (!notice) {
+      notice = document.createElement("div");
+      notice.id = "permission-notice";
+      notice.style.cssText = `
+        position: fixed;
+        bottom: 80px;
+        left: 16px;
+        right: 16px;
+        background: #1e293b;
+        border: 1px solid #ff634740;
+        border-radius: 16px;
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        z-index: 9999;
+        animation: slideUp 0.3s ease;
+      `;
+      notice.innerHTML = `
+        <span style="font-size:20px;">📍</span>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:600;color:white;margin-bottom:2px;">
+            Location access off
+          </div>
+          <div style="font-size:12px;color:#94a3b8;">
+            Turn on location in browser settings to get local weather
+          </div>
+        </div>
+        <button id="close-permission-notice" style="
+          background:transparent;border:none;
+          color:#64748b;font-size:18px;cursor:pointer;
+        ">×</button>
+      `;
+      document.body.appendChild(notice);
+
+      const closeBtn = document.getElementById("close-permission-notice");
+      if (closeBtn) {
+        closeBtn.onclick = () => {
+          notice?.remove();
+        };
+      }
+
+      // Auto dismiss after 5 seconds
+      setTimeout(() => {
+        if (notice && notice.parentNode) notice.remove();
+      }, 5000);
+    }
+  };
+
+  const checkLocationPermission = async () => {
+    try {
+      if (navigator.permissions) {
+        const result = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+        LocationState.permissionState = result.state;
+
+        // Watch for permission changes
+        result.onchange = () => {
+          LocationState.permissionState = result.state;
+          handlePermissionChange(result.state);
+        };
+
+        return result.state; // "granted"|"denied"|"prompt"
+      }
+    } catch (e) {
+      console.warn("Permissions API unavailable");
+    }
+
+    // Fallback — assume prompt if API not available
+    return "prompt";
+  };
+
+  const handlePermissionChange = (stateStr: string) => {
+    if (stateStr === "denied") {
+      // Permission revoked — stop everything
+      stopLocationRefresh();
+      removeCurrentLocationPage();
+      showPermissionDeniedNotice();
+    } else if (stateStr === "granted") {
+      // Permission granted — start fetching
+      startLocationSystem();
+    }
+  };
+
+  const hasLocationChanged = (newLat: number, newLon: number) => {
+    if (LocationState.lat === null || LocationState.lon === null) 
+      return true;
+
+    // Calculate distance (roughly ~1km threshold)
+    const dx = newLat - LocationState.lat;
+    const dy = newLon - LocationState.lon;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    return dist > 0.01; // ~1km
+  };
+
+  const addCurrentLocationPage = async (cityName: string, lat: number, lon: number) => {
+    const newLocation: Location = {
+      id: 0,
+      name: cityName,
+      latitude: lat,
+      longitude: lon,
+      timezone: "auto",
+      country: "Nearby",
+      isCurrentLocation: true,
+      isGeolocated: true,
+      icon: "📍"
+    };
+
+    setState(prev => {
+      const filtered = prev.locations.filter(loc => !loc.isCurrentLocation);
+      const newLocations = [newLocation, ...filtered];
+      return {
+        ...prev,
+        locations: newLocations,
+        activeLocationIndex: 0,
+        loading: true
+      };
+    });
+
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const data = await fetchWeather(lat, lon, timezone, cityName, "Nearby");
+      saveWeatherData(getCityKey(newLocation), data);
+      setState(prev => {
+        const newWeatherData = { ...prev.weatherData };
+        // Shift existing weather data maps to right by 1
+        const keys = Object.keys(newWeatherData).map(Number).sort((a,b) => b - a);
+        keys.forEach(k => {
+          newWeatherData[k+1] = newWeatherData[k];
+        });
+        newWeatherData[0] = data;
+
+        return {
+          ...prev,
+          weatherData: newWeatherData,
+          loading: false,
+          error: null
+        };
+      });
+    } catch (err) {
+      console.warn("fetchWeather failed when adding current location page:", err);
+      setState(prev => ({ ...prev, loading: false }));
+    }
+
+    hideLocationIndicator();
+    console.log("Current location page added:", cityName);
+  };
+
+  const addCurrentLocationPageFromCache = () => {
+    if (!LocationState.hasLocation || LocationState.lat === null || LocationState.lon === null) return;
+    const cachedLoc: Location = {
+      id: 0,
+      name: LocationState.cityName || "Current Location",
+      latitude: LocationState.lat,
+      longitude: LocationState.lon,
+      timezone: "auto",
+      country: "Nearby",
+      isCurrentLocation: true,
+      isGeolocated: true,
+      icon: "📍"
+    };
+
+    setState(prev => {
+      const filtered = prev.locations.filter(loc => !loc.isCurrentLocation);
+      const newLocations = [cachedLoc, ...filtered];
+      return {
+        ...prev,
+        locations: newLocations
+      };
+    });
+  };
+
+  const replaceCurrentLocationPage = async (cityName: string, lat: number, lon: number) => {
+    const updatedLocation: Location = {
+      id: 0,
+      name: cityName,
+      latitude: lat,
+      longitude: lon,
+      timezone: "auto",
+      country: "Nearby",
+      isCurrentLocation: true,
+      isGeolocated: true,
+      icon: "📍"
+    };
+
+    setState(prev => {
+      const newLocs = [...prev.locations];
+      if (newLocs[0]?.isCurrentLocation) {
+        newLocs[0] = updatedLocation;
+      } else {
+        newLocs.unshift(updatedLocation);
+      }
+      return {
+        ...prev,
+        locations: newLocs
+      };
+    });
+
+    if (stateRef.current.activeLocationIndex === 0) {
+      try {
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        const data = await fetchWeather(lat, lon, timezone, cityName, "Nearby");
+        saveWeatherData(getCityKey(updatedLocation), data);
+        setState(prev => ({
+          ...prev,
+          weatherData: { ...prev.weatherData, [0]: data }
+        }));
+      } catch (err) {
+        console.warn("fetchWeather failed when replacing current location page:", err);
+      }
+    }
+    console.log("Current location replaced:", cityName);
+  };
+
+  const removeCurrentLocationPage = () => {
+    if (stateRef.current.locations.length > 0 && stateRef.current.locations[0].isCurrentLocation) {
+      setState(prev => {
+        const newLocations = prev.locations.filter(loc => !loc.isCurrentLocation);
+        
+        // Do not add any default city - let the user decide.
+
+        const newIndex = Math.max(0, prev.activeLocationIndex - 1);
+        
+        // Clean and shift weather data map
+        const newWeatherData: Record<number, WeatherData> = {};
+        newLocations.forEach((_, i) => {
+          if (prev.weatherData[i + 1]) {
+            newWeatherData[i] = prev.weatherData[i + 1];
+          }
+        });
+
+        return {
+          ...prev,
+          locations: newLocations,
+          activeLocationIndex: newIndex,
+          weatherData: newWeatherData
+        };
+      });
+
+      LocationState.clear();
+      console.log("Current location page removed");
+    }
+  };
+
+  const fetchCurrentLocation = async (isBackground = false) => {
+    // STEP 1 — Check permission first
+    const permission = await checkLocationPermission();
+
+    if (permission === "denied") {
+      console.warn("Location permission denied");
+      if (!isBackground) showPermissionDeniedNotice();
+      stopLocationRefresh();
+      return null;
+    }
+
+    // STEP 2 — Show loading indicator
+    if (!isBackground) {
+      showLocationIndicator("getting");
+    } else {
+      showMinimalIndicator("GETTING LOCATION");
+    }
+
+    LocationState.isLoading = true;
+
+    // STEP 3 — Get coordinates
+    return new Promise<{ lat: number; lon: number; cityName: string } | null>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude, longitude } = pos.coords;
+
+          // Check if location actually changed
+          const moved = hasLocationChanged(latitude, longitude);
+
+          // STEP 4 — Reverse geocode to city name
+          const resolved = await reverseGeocode(latitude, longitude);
+          
+          if (resolved && resolved.name && resolved.name !== "Current Location") {
+            const cityName = resolved.name;
+
+            if (!moved && LocationState.hasLocation && LocationState.cityName === cityName) {
+              // Same location — quiet update
+              hideLocationIndicator();
+              hideMinimalIndicator();
+              LocationState.isLoading = false;
+              resolve(null);
+              return;
+            }
+
+            // STEP 5 — Update state
+            const wasFirstTime = !LocationState.hasLocation;
+            LocationState.hasLocation = true;
+            LocationState.lat         = latitude;
+            LocationState.lon         = longitude;
+            LocationState.cityName    = cityName;
+            LocationState.lastUpdated = Date.now();
+            LocationState.save();
+            LocationState.isLoading   = false;
+
+            // STEP 6 — Update UI
+            if (wasFirstTime) {
+              await addCurrentLocationPage(cityName, latitude, longitude);
+            } else {
+              await replaceCurrentLocationPage(cityName, latitude, longitude);
+              showMinimalIndicator("LOCATION UPDATED");
+              setTimeout(hideMinimalIndicator, 2500);
+            }
+
+            resolve({ 
+              lat: latitude, 
+              lon: longitude, 
+              cityName 
+            });
+          } else {
+            // Unsuccessful city detection! The page won't be visible.
+            console.warn("Could not detect nearest city name for coordinates:", latitude, longitude);
+            LocationState.isLoading = false;
+            hideLocationIndicator();
+            hideMinimalIndicator();
+            
+            // Remove previous current location page if it was there
+            removeCurrentLocationPage();
+            
+            resolve(null);
+          }
+        },
+        (err) => {
+          LocationState.isLoading = false;
+          hideLocationIndicator();
+          hideMinimalIndicator();
+
+          if (err.code === 1) {
+            // Permission denied by user
+            stopLocationRefresh();
+            removeCurrentLocationPage();
+            showPermissionDeniedNotice();
+          } else {
+            console.warn("Location error:", err.message);
+          }
+          resolve(null);
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 8000,
+          maximumAge: 300000
+        }
+      );
+    });
+  };
+
+  const startLocationRefresh = () => {
+    // Clear any existing interval
+    stopLocationRefresh();
+
+    // Refresh every 10 minutes
+    locationRefreshIntervalRef.current = setInterval(async () => {
+      if (LocationState.hasLocation) {
+        console.log("Background location refresh...");
+        await fetchCurrentLocation(true);
+      }
+    }, 10 * 60 * 1000);
+
+    console.log("Location refresh started");
+  };
+
+  const stopLocationRefresh = () => {
+    if (locationRefreshIntervalRef.current) {
+      clearInterval(locationRefreshIntervalRef.current);
+      locationRefreshIntervalRef.current = null;
+      console.log("Location refresh stopped");
+    }
+  };
+
+  const startLocationSystem = async () => {
+    // Check permission first — don't do anything if denied
+    const permission = await checkLocationPermission();
+    console.log("Location permission:", permission);
+
+    if (permission === "denied") {
+      // Don't show page, don't fetch, just stop
+      console.log("Location denied — skipping");
+      return;
+    }
+
+    // Restore previous location from cache
+    const hasSaved = LocationState.load();
+
+    if (hasSaved && LocationState.cityName && LocationState.cityName !== "Current Location") {
+      // Show saved location page instantly since we successfully geocoded it before
+      addCurrentLocationPageFromCache();
+
+      // Then silently check for location change
+      setTimeout(async () => {
+        await fetchCurrentLocation(true);
+      }, 2000);
+
+      // Start 10 min refresh
+      startLocationRefresh();
+
+    } else {
+      // By default, turn it on! Request the location on startup.
+      await fetchCurrentLocation(false);
+      if (LocationState.hasLocation) {
+        startLocationRefresh();
+      }
+    }
+  };
+
+  useEffect(() => {
+    startLocationSystem();
+
+    return () => {
+      stopLocationRefresh();
+    };
+  }, []);
+
+  useEffect(() => {
+    const refreshAllCitiesBackground = async () => {
+      // Small 3s delay on app boot before performing check
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (!navigator.onLine) return;
+
+      console.log("Startup silent background refresh beginning...");
+      const locations = [...stateRef.current.locations];
+      for (let i = 0; i < locations.length; i++) {
+        const city = locations[i];
+        if (!city) continue;
+
+        // Space requests to avoid overloading the API
+        await new Promise(resolve => setTimeout(resolve, 800));
+
+        // Skip if cache is reasonably fresh (older than 10 minutes)
+        const cityKey = getCityKey(city);
+        const cached = getCachedWeatherData(cityKey);
+        if (cached && (Date.now() - cached.ts < 10 * 60 * 1000)) {
+          continue;
+        }
+
+        try {
+          const data = await fetchWeather(city.latitude, city.longitude, city.timezone, city.name, city.country);
+          saveWeatherData(cityKey, data);
+          setState(prev => {
+            // Verify location is still at this position and matches
+            if (prev.locations[i]?.name === city.name) {
+              return {
+                ...prev,
+                weatherData: { ...prev.weatherData, [i]: data }
+              };
+            }
+            return prev;
+          });
+          console.log(`Silent layout updated for: ${city.name}`);
+        } catch (e) {
+          console.warn(`Silent background refresh failed for ${city.name}:`, e);
+        }
+      }
+    };
+
+    refreshAllCitiesBackground();
+  }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        if (LocationState.hasLocation) {
+          const age = Date.now() - (LocationState.lastUpdated || 0);
+          // If older than 5 minutes — check location
+          if (age > 5 * 60 * 1000) {
+            fetchCurrentLocation(true);
+          }
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   const [dismissedAlerts, setDismissedAlerts] = useState<Record<string, number>>(() => {
@@ -252,24 +1144,41 @@ export default function App() {
   const loadWeather = async (location: Location, index: number, forceRefresh = false) => {
     if (!location) return;
 
-    // 1. Try Cache First for Speed
-    const cacheResult = getCachedWeatherData(getCityKey(location));
+    // STEP 1 — Kill animations immediately
+    disableAllAnimations();
+
+    const cityKey = getCityKey(location);
+    const cacheResult = getCachedWeatherData(cityKey);
+
     if (cacheResult && !forceRefresh) {
-      const { data: cachedData } = cacheResult;
+      const { data: cachedData, ts } = cacheResult;
+      
+      // Update state with cached data instantly.
       setState(prev => ({
         ...prev,
         weatherData: { ...prev.weatherData, [index]: cachedData },
         loading: false,
         error: null
       }));
-      // If we are online and cache is reasonably fresh, we can skip immediate background refresh
-      const isStale = Date.now() - (cachedData.fetchedAt || 0) > CACHE_EXPIRY;
+
+      // Hide skeleton and restore animations instantly
+      hideCitySkeleton();
+      enableAllAnimations();
+
+      // Fetch fresh silently in the background if the cache is older than 10 minutes
+      const cacheAge = Date.now() - ts;
+      const isStale = cacheAge > 10 * 60 * 1000;
+      
       if (!navigator.onLine || !isStale) return;
+    } else if (!cacheResult) {
+      // No cache — show skeleton instantly
+      showCitySkeleton();
+      setState(prev => ({ ...prev, loading: true }));
     }
 
     try {
-      const data = await fetchWeather(location.latitude, location.longitude, location.timezone, location.name);
-      saveWeatherData(getCityKey(location), data);
+      const data = await fetchWeather(location.latitude, location.longitude, location.timezone, location.name, location.country);
+      saveWeatherData(cityKey, data);
       
       setState(prev => {
         if (prev.locations.length <= index || prev.locations[index]?.name !== location.name) {
@@ -282,6 +1191,10 @@ export default function App() {
           error: null,
         };
       });
+
+      // Render fresh data, hide skeleton, and enable animations smoothly
+      hideCitySkeleton();
+      enableAllAnimations();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.warn(`Weather fetch failed for ${location?.name || 'Unknown'}:`, errorMsg);
@@ -289,9 +1202,8 @@ export default function App() {
       let message = 'Weather service unavailable';
       if (err instanceof Error) {
         message = err.message;
-        // Intercept generic "Failed to fetch" which is often a CORS or network block issue
         if (message.toLowerCase().includes('failed to fetch') || message.toLowerCase().includes('fetch')) {
-           message = 'Could not connect to the weather server. You might be offline, using an ad-blocker, or the service is temporarily restricted in your region.';
+          message = 'Could not connect to the weather server. You might be offline, using an ad-blocker, or the service is temporarily restricted in your region.';
         }
         if (message === 'Script error.') {
           message = 'A connection error occurred. Please check your internet and try again.';
@@ -299,8 +1211,10 @@ export default function App() {
       }
 
       // If we already have cache but fetch failed (likely offline/timeout), keep the cache
-      if (state.weatherData[index]) {
+      if (state.weatherData[index] || cacheResult) {
         setState(prev => ({ ...prev, loading: false }));
+        hideCitySkeleton();
+        enableAllAnimations();
         return;
       }
 
@@ -309,6 +1223,9 @@ export default function App() {
         loading: false,
         error: prev.activeLocationIndex === index ? message : prev.error,
       }));
+
+      hideCitySkeleton();
+      enableAllAnimations();
     }
   };
 
@@ -326,11 +1243,21 @@ export default function App() {
     });
 
     if (existsIndex !== -1) {
-      setState(prev => ({ 
-        ...prev, 
-        activeLocationIndex: existsIndex, 
-        showSettings: false 
-      }));
+      setState(prev => {
+        const newWeatherData = { ...prev.weatherData };
+        if (!newWeatherData[existsIndex]) {
+          const cached = getCachedWeatherData(getCityKey(prev.locations[existsIndex]));
+          if (cached) {
+            newWeatherData[existsIndex] = cached.data;
+          }
+        }
+        return {
+          ...prev,
+          activeLocationIndex: existsIndex,
+          weatherData: newWeatherData,
+          showSettings: false
+        };
+      });
       return;
     }
 
@@ -339,13 +1266,21 @@ export default function App() {
     const newLocations = [...state.locations, location];
 
     // 3. Update state with immediate loading for the new index
-    setState(prev => ({
-      ...prev,
-      locations: newLocations,
-      activeLocationIndex: newIndex,
-      loading: true,
-      error: null
-    }));
+    setState(prev => {
+      const newWeatherData = { ...prev.weatherData };
+      const cached = getCachedWeatherData(getCityKey(location));
+      if (cached) {
+        newWeatherData[newIndex] = cached.data;
+      }
+      return {
+        ...prev,
+        locations: newLocations,
+        activeLocationIndex: newIndex,
+        weatherData: newWeatherData,
+        loading: !cached,
+        error: null
+      };
+    });
 
     // 4. Trigger weather fetch for the new city
     loadWeather(location, newIndex);
@@ -435,15 +1370,27 @@ export default function App() {
         };
       });
     } catch (err) {
-      console.warn('Bulk weather load failed, falling back to cache/staggered:', err);
+      console.warn('Bulk weather load failed, falling back to staggered:', err);
       // If we are online but bulk fails, try staggered
       if (navigator.onLine) {
-        for (let i = 0; i < locations.length; i++) {
-          await loadWeather(locations[i], startIndex + i);
-          if (i < locations.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 500));
+        try {
+          for (let i = 0; i < locations.length; i++) {
+            await loadWeather(locations[i], startIndex + i);
+            // Slight delay to avoid rate limiting
+            if (i < locations.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 800));
+            }
           }
+        } catch (staggerErr) {
+          console.error('All fetch attempts failed:', staggerErr);
+          setState(prev => ({
+            ...prev,
+            loading: false,
+            error: "Unable to refresh weather data. Please check your connection or try again later."
+          }));
         }
+      } else {
+        setState(prev => ({ ...prev, loading: false }));
       }
     }
   };
@@ -608,6 +1555,7 @@ export default function App() {
   
   // Back button handling logic
   const panelStackRef = useRef<(() => void)[]>([]);
+  const isProgrammaticBackRef = useRef(false);
 
   useEffect(() => {
     // 1. Initialize on app start: Push an initial state so the first back press doesn't immediately exit
@@ -620,6 +1568,11 @@ export default function App() {
 
     // 2. Global popstate listener to handle back button
     const handlePopState = (e: PopStateEvent) => {
+      if (isProgrammaticBackRef.current) {
+        isProgrammaticBackRef.current = false;
+        return;
+      }
+
       if (panelStackRef.current.length > 0) {
         backPressCount = 0;
         setShowExitToast(false);
@@ -656,7 +1609,24 @@ export default function App() {
   };
 
   const handleBack = () => {
-    window.history.back();
+    if (panelStackRef.current.length > 0) {
+      const closePanel = panelStackRef.current.pop();
+      if (closePanel) {
+        isProgrammaticBackRef.current = true;
+        closePanel();
+      }
+      try {
+        window.history.back();
+      } catch (e) {
+        console.warn("history.back failed:", e);
+      }
+    } else {
+      try {
+        window.history.back();
+      } catch (e) {
+        console.warn("history.back failed:", e);
+      }
+    }
   };
 
   const toggleSettings = () => {
@@ -671,6 +1641,12 @@ export default function App() {
     }
   };
 
+  const openSearch = () => {
+    Haptic.medium(state.settings.hapticEnabled);
+    setShowSearch(true);
+    pushPanel(() => setShowSearch(false), 'search');
+  };
+
   // Manual refresh logic
   const handleRefresh = async () => {
     if (isRefreshing || state.locations.length === 0) return;
@@ -678,9 +1654,10 @@ export default function App() {
     Haptic.medium(state.settings.hapticEnabled);
     
     try {
-      await loadWeatherBatch(state.locations);
+      await refreshWeather();
       Haptic.success(state.settings.hapticEnabled);
     } catch (e) {
+      console.warn("Manual refresh failed:", e);
       Haptic.warning(state.settings.hapticEnabled);
     } finally {
       setTimeout(() => setIsRefreshing(false), 800);
@@ -690,6 +1667,7 @@ export default function App() {
   const handleSwipe = (direction: 'left' | 'right') => {
     Haptic.light(state.settings.hapticEnabled);
     setSlideDirection(direction);
+    disableAllAnimations();
     
     setState(prev => {
       const isLeft = direction === 'left';
@@ -699,7 +1677,23 @@ export default function App() {
       } else {
         nextIndex = (prev.activeLocationIndex - 1 + prev.locations.length) % prev.locations.length;
       }
-      return { ...prev, activeLocationIndex: nextIndex };
+
+      const newWeatherData = { ...prev.weatherData };
+      if (!newWeatherData[nextIndex]) {
+        const nextCity = prev.locations[nextIndex];
+        if (nextCity) {
+          const cached = getCachedWeatherData(getCityKey(nextCity));
+          if (cached) {
+            newWeatherData[nextIndex] = cached.data;
+          }
+        }
+      }
+
+      return { 
+        ...prev, 
+        activeLocationIndex: nextIndex,
+        weatherData: newWeatherData
+      };
     });
     
     window.scrollTo({ top: 0, behavior: 'auto' });
@@ -731,6 +1725,54 @@ export default function App() {
       if (state.showSettings || showSearch || showCityManager || state.locations.length <= 1) return;
       setIsSwiping(true);
       setIsSwipeCommitted(false);
+
+      // PART 1D — Silent background prefetch of adjacent cities
+      const activeIdx = state.activeLocationIndex;
+      const len = state.locations.length;
+      const nextIdx = (activeIdx + 1) % len;
+      const prevIdx = (activeIdx - 1 + len) % len;
+
+      const nextCity = state.locations[nextIdx];
+      const prevCity = state.locations[prevIdx];
+
+      // Instant pre-hydrate adjacent cities from cache into state
+      setState(prev => {
+        const newWeatherData = { ...prev.weatherData };
+        let updated = false;
+
+        [nextIdx, prevIdx].forEach(idx => {
+          if (!newWeatherData[idx]) {
+            const loc = prev.locations[idx];
+            if (loc) {
+              const cached = getCachedWeatherData(getCityKey(loc));
+              if (cached) {
+                newWeatherData[idx] = cached.data;
+                updated = true;
+              }
+            }
+          }
+        });
+
+        if (updated) {
+          return { ...prev, weatherData: newWeatherData };
+        }
+        return prev;
+      });
+
+      if (nextCity) {
+        const cached = getCachedWeatherData(getCityKey(nextCity));
+        const cacheAge = cached ? Date.now() - cached.ts : Infinity;
+        if (!cached || cacheAge > 10 * 60 * 1000) {
+          loadWeather(nextCity, nextIdx);
+        }
+      }
+      if (prevCity) {
+        const cached = getCachedWeatherData(getCityKey(prevCity));
+        const cacheAge = cached ? Date.now() - cached.ts : Infinity;
+        if (!cached || cacheAge > 10 * 60 * 1000) {
+          loadWeather(prevCity, prevIdx);
+        }
+      }
     };
 
     const onSwipeCancel = () => {
@@ -774,6 +1816,7 @@ export default function App() {
 
     return (
       <motion.div
+        id="swipe-layer"
         key={`${activeLocation.id}-${activeLocation.name}`}
         initial={{ opacity: 0, x: slideDirection ? xOffset : 0 }}
         animate={{ opacity: 1, x: 0 }}
@@ -788,7 +1831,7 @@ export default function App() {
           stiffness: 400,
           mass: 0.5
         }}
-        className="flex flex-col gap-4 gpu"
+        className="city-card flex flex-col gap-4 gpu weather-content"
       >
         <WeatherHero 
           weather={activeWeather} 
@@ -825,10 +1868,6 @@ export default function App() {
                 Verified Source
               </p>
             </div>
-            <p className="text-[9px] text-app-text-dim font-medium tracking-widest leading-relaxed">
-              Hyper-local payload delivered by Open-Meteo<br/>
-              Network Node: {activeLocation?.timezone || 'Universal'}
-            </p>
           </div>
         </div>
       </motion.div>
@@ -839,12 +1878,20 @@ export default function App() {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
       
+      // If user is scrolling the hourly forecast horizontally, keep header visible
+      const isHourlyActive = (window as any).isScrollingHourly || (window as any).isInteractingWithHourly;
+      if (isHourlyActive) {
+        setHeaderVisible(true);
+        lastScrollY.current = currentScrollY;
+        return;
+      }
+      
       // Show ONLY at the very top as requested
       if (currentScrollY < 10) {
         setHeaderVisible(true);
       } 
-      // Hide as soon as we scroll down
-      else if (currentScrollY > 40) {
+      // Hide once vertical scroll is significant (increased threshold to 150px to reduce sensitivity)
+      else if (currentScrollY > 150) {
         setHeaderVisible(false);
       }
       
@@ -859,136 +1906,246 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-app-bg text-app-text font-sans selection:bg-app-text/20 transition-colors duration-500">
-      <AtmosphereFX 
-        weatherCode={activeWeather?.current.summaryCode ?? activeWeather?.current.weatherCode ?? 0}
-        isDay={activeWeather?.current.isDay ?? true}
-        moonPhase={getMoonPhaseInfo().phase}
-        locationName={activeLocation?.name ?? ''}
-      />
+    <div 
+      className="min-h-screen bg-black text-app-text font-sans selection:bg-app-text/20 transition-colors duration-500 relative"
+    >
+      {state.settings.gradientAnimation !== 'off' && (
+        <AtmosphereFX 
+          key={`${activeLocation?.name ?? 'empty'}-${activeWeather ? getCurrentWeatherState(activeWeather).weatherCode : 0}-${activeWeather?.fetchedAt ?? 0}`}
+          weatherCode={activeWeather ? getCurrentWeatherState(activeWeather).weatherCode : 0}
+          isDay={activeWeather ? getCurrentWeatherState(activeWeather).isDay : true}
+          moonPhase={getMoonPhaseInfo().phase}
+          locationName={activeLocation?.name ?? ''}
+          mainIconName={activeWeather ? getCurrentWeatherState(activeWeather).icon : undefined}
+          gradientAnimation={state.settings.gradientAnimation ?? 'on'}
+          timezone={activeLocation?.timezone || 'UTC'}
+          fetchedAt={activeWeather?.fetchedAt}
+          localHour={(() => {
+            try {
+              const timezone = activeLocation?.timezone || 'UTC';
+              const dateStr = new Intl.DateTimeFormat('en-US', {
+                timeZone: timezone === 'auto' ? undefined : timezone,
+                hour: 'numeric',
+                hour12: false
+              }).format(new Date());
+              const parsedHour = parseInt(dateStr.replace(/[^0-9]/g, ''), 10);
+              return parsedHour % 24;
+            } catch {
+              return new Date().getHours() % 24;
+            }
+          })()}
+        />
+      )}
 
       <div id="ui-overlay" className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] z-[100] pointer-events-none pt-[env(safe-area-inset-top)]">
-        <motion.div 
-          className="w-full h-32 relative"
-          initial={false}
-          animate={{
-            y: (headerVisible && !isSwiping) ? 0 : -120,
-            opacity: (headerVisible && !isSwiping) ? 1 : 0,
-          }}
-          transition={{ 
-            duration: 0.12, 
-            ease: [0.25, 0.46, 0.45, 0.94],
-            opacity: { duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 } // Instant hide during swipe
-          }}
-        >
-          <motion.div className="absolute left-6 top-8 pointer-events-auto">
-            <motion.button 
-              onClick={() => {
-                Haptic.light(state.settings.hapticEnabled);
-                setShowCityManager(true);
-                pushPanel(() => setShowCityManager(false), 'citymanager');
-              }}
-              className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text active:scale-95 transition-all shadow-xl"
-              initial={false}
-              animate={{
-                opacity: state.showSettings || showCityManager || isSwiping || isSwipeCommitted ? 0 : 1,
-                pointerEvents: state.showSettings || showCityManager || isSwiping || isSwipeCommitted ? 'none' : 'auto',
-                scale: state.showSettings || showCityManager ? 0.8 : 1,
-              }}
-              transition={{ 
-                duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 
-              }}
-            >
-              <Icons.LayoutGrid className="w-5 h-5 text-app-text-dim" strokeWidth={1.5} />
-            </motion.button>
-          </motion.div>
+        <style>{`
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+          @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+          }
+        `}</style>
+        
+        <div id="location-status-bar" style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 0,
+          overflow: "hidden",
+          background: "#1e293b",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "8px",
+          zIndex: 9999,
+          transition: "height 0.3s ease",
+          fontSize: "11px",
+          letterSpacing: "1.5px",
+          fontWeight: 600,
+          textTransform: "uppercase"
+        }}>
+          <div id="location-status-spinner" style={{
+            width: "12px",
+            height: "12px",
+            border: "1.5px solid #ffffff30",
+            borderTop: "1.5px solid #6366f1",
+            borderRadius: "50%",
+            animation: "spin 0.8s linear infinite",
+            display: "none"
+          }}></div>
+          <span id="location-status-text" style={{ color: "#94a3b8" }}></span>
+        </div>
 
-          {/* Settings Button - Top Right */}
-          <motion.div className="absolute right-6 top-8 pointer-events-auto">
-            <motion.button 
-              onClick={toggleSettings}
-              className="group active:scale-95 transition-all w-12 h-12 flex items-center justify-center"
-              animate={{
-                opacity: isSwiping || isSwipeCommitted ? 0 : 1,
-              }}
-              transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 }}
-            >
+        {state.locations.length > 0 && (
+          <motion.div 
+            className="w-full h-32 relative"
+            initial={false}
+            animate={{
+              y: (headerVisible && !isSwiping) ? 0 : -120,
+              opacity: (headerVisible && !isSwiping) ? 1 : 0,
+              pointerEvents: (headerVisible && !isSwiping) ? 'auto' : 'none' as any,
+            }}
+            transition={{ 
+              duration: 0.12, 
+              ease: [0.25, 0.46, 0.45, 0.94],
+              opacity: { duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 } // Instant hide during swipe
+            }}
+          >
+            <motion.div className="absolute left-6 top-8 pointer-events-auto">
+              <motion.button 
+                onClick={() => {
+                  Haptic.light(state.settings.hapticEnabled);
+                  setShowCityManager(true);
+                  pushPanel(() => setShowCityManager(false), 'citymanager');
+                }}
+                className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text active:scale-95 transition-all shadow-xl"
+                initial={false}
+                animate={{
+                  opacity: state.showSettings || showCityManager || isSwiping || isSwipeCommitted ? 0 : 1,
+                  pointerEvents: state.showSettings || showCityManager || isSwiping || isSwipeCommitted ? 'none' : 'auto',
+                  scale: state.showSettings || showCityManager ? 0.8 : 1,
+                }}
+                transition={{ 
+                  duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 
+                }}
+              >
+                <Icons.LayoutGrid className="w-5 h-5 text-app-text-dim" strokeWidth={1.5} />
+              </motion.button>
+            </motion.div>
+
+            {/* Settings Button - Top Right */}
+            <motion.div className="absolute right-6 top-8 pointer-events-auto">
+              <motion.button 
+                id="settings-btn"
+                onClick={toggleSettings}
+                className={`group active:scale-95 transition-all flex items-center justify-center ${
+                  state.showSettings ? 'h-12 px-1' : 'w-12 h-12'
+                }`}
+                animate={{
+                  opacity: isSwiping || isSwipeCommitted ? 0 : 1,
+                }}
+                transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 }}
+              >
+                <AnimatePresence mode="wait">
+                  {state.showSettings ? (
+                    <motion.div
+                      key="back"
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 10 }}
+                      className="flex items-center text-app-text gap-1 pr-1"
+                    >
+                      <Icons.ChevronLeft className="w-6 h-6" strokeWidth={2.5} />
+                      <span className="font-bold text-[14px]">BACK</span>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="settings"
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text-dim group-hover:text-app-text transition-colors shadow-xl"
+                    >
+                      <Icons.Settings2 className="w-5 h-5" />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.button>
+            </motion.div>
+
+            <div id="refresh-indicator" style={{
+              position: 'absolute',
+              top: '50%',
+              right: '60px',
+              transform: 'translateY(-50%)',
+              display: 'none',
+            }} className="pointer-events-none select-none">
+              <div id="refresh-spinner" style={{
+                width: '18px',
+                height: '18px',
+                border: '2px solid rgba(255, 255, 255, 0.12)',
+                borderTop: '2px solid #ffffff',
+                borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite',
+              }}></div>
+            </div>
+
+            {/* City Name & Pagination - Center */}
+            <div className="absolute left-1/2 -translate-x-1/2 top-8 flex flex-col items-center pointer-events-none mt-2">
               <AnimatePresence mode="wait">
-                {state.showSettings ? (
-                  <motion.div
-                    key="back"
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 10 }}
-                    className="flex items-center text-app-text pr-2"
+                {state.locations.length > 0 && (
+                  <motion.div 
+                    key={activeLocation?.id || activeLocation?.name || 'loading'}
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ 
+                      opacity: state.showSettings || showCityManager || isSwiping || isSwipeCommitted ? 0 : 1,
+                      y: 0 
+                    }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 }}
+                    className="flex flex-col items-center justify-center"
                   >
-                    <Icons.ChevronLeft className="w-6 h-6" strokeWidth={2.5} />
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="settings"
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text-dim group-hover:text-app-text transition-colors shadow-xl"
-                  >
-                    <Icons.Settings2 className="w-5 h-5" />
+                    <div className="flex items-center gap-1.5 justify-center relative">
+                      <span id="city-name" className="text-[17px] font-semibold text-app-text">{activeLocation?.name || 'Loading...'}</span>
+                      <span id="location-pin-icon" style={{ display: activeLocation?.isCurrentLocation ? "inline" : "none" }}>📍</span>
+                    </div>
+                    
+                    {isOffline && (
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full mt-1"
+                      >
+                        <Icons.CloudOff className="w-2.5 h-2.5 text-amber-500" />
+                        <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Offline</span>
+                      </motion.div>
+                    )}
+
+                    <div id="city-dots" className="flex gap-1.5 mt-1.5">
+                      {state.locations.map((_, i) => (
+                        <button 
+                          key={i} 
+                          onClick={() => {
+                            if (state.activeLocationIndex !== i) {
+                              Haptic.light(state.settings.hapticEnabled);
+                              disableAllAnimations();
+                              setState(prev => {
+                                const newWeatherData = { ...prev.weatherData };
+                                if (!newWeatherData[i]) {
+                                  const city = prev.locations[i];
+                                  if (city) {
+                                    const cached = getCachedWeatherData(getCityKey(city));
+                                    if (cached) {
+                                      newWeatherData[i] = cached.data;
+                                    }
+                                  }
+                                }
+                                return {
+                                  ...prev,
+                                  activeLocationIndex: i,
+                                  weatherData: newWeatherData
+                                };
+                              });
+                            }
+                          }}
+                          className={cn(
+                            "w-1.5 h-1.5 rounded-full transition-all duration-300 pointer-events-auto",
+                            state.activeLocationIndex === i 
+                              ? "bg-white w-5 shadow-[0_0_8px_rgba(255,255,255,0.3)]" 
+                              : "bg-white/40 hover:bg-white/60"
+                          )} 
+                        />
+                      ))}
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
-            </motion.button>
+            </div>
           </motion.div>
-
-          {/* City Name & Pagination - Center */}
-          <div className="absolute left-1/2 -translate-x-1/2 top-8 flex flex-col items-center pointer-events-none mt-2">
-            <AnimatePresence mode="wait">
-              <motion.div 
-                key={activeLocation?.id || activeLocation?.name || 'loading'}
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ 
-                  opacity: state.showSettings || showCityManager || isSwiping || isSwipeCommitted ? 0 : 1,
-                  y: 0 
-                }}
-                exit={{ opacity: 0, y: 10 }}
-                transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 }}
-                className="flex flex-col items-center"
-              >
-                <span className="text-[17px] font-semibold text-app-text">{activeLocation?.name || 'Loading...'}</span>
-                
-                {isOffline && (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full mt-1"
-                  >
-                    <Icons.CloudOff className="w-2.5 h-2.5 text-amber-500" />
-                    <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Offline</span>
-                  </motion.div>
-                )}
-
-                <div id="city-dots" className="flex gap-1.5 mt-1.5">
-                  {state.locations.map((_, i) => (
-                    <button 
-                      key={i} 
-                      onClick={() => {
-                        if (state.activeLocationIndex !== i) {
-                          Haptic.light(state.settings.hapticEnabled);
-                          setState(prev => ({ ...prev, activeLocationIndex: i }));
-                        }
-                      }}
-                      className={cn(
-                        "w-1.5 h-1.5 rounded-full transition-all duration-300 pointer-events-auto",
-                        state.activeLocationIndex === i 
-                          ? "bg-white w-5 shadow-[0_0_8px_rgba(255,255,255,0.3)]" 
-                          : "bg-white/40 hover:bg-white/60"
-                      )} 
-                    />
-                  ))}
-                </div>
-              </motion.div>
-            </AnimatePresence>
-          </div>
-        </motion.div>
+        )}
       </div>
 
       <AnimatePresence>
@@ -1000,6 +2157,8 @@ export default function App() {
             activeWeather={activeWeather}
             activeLocation={activeLocation}
             panelStackRef={panelStackRef}
+            handleBack={handleBack}
+            pushPanel={pushPanel}
           />
         )}
       </AnimatePresence>
@@ -1014,7 +2173,24 @@ export default function App() {
               panelStackRef={panelStackRef}
               onSelect={(index) => {
                 Haptic.light(state.settings.hapticEnabled);
-                setState(prev => ({ ...prev, activeLocationIndex: index }));
+                disableAllAnimations();
+                setState(prev => {
+                  const newWeatherData = { ...prev.weatherData };
+                  if (!newWeatherData[index]) {
+                    const city = prev.locations[index];
+                    if (city) {
+                      const cached = getCachedWeatherData(getCityKey(city));
+                      if (cached) {
+                        newWeatherData[index] = cached.data;
+                      }
+                    }
+                  }
+                  return {
+                    ...prev,
+                    activeLocationIndex: index,
+                    weatherData: newWeatherData
+                  };
+                });
                 handleBack();
               }}
               onAdd={() => {
@@ -1042,6 +2218,7 @@ export default function App() {
               hapticEnabled={state.settings.hapticEnabled}
               onSelect={(loc) => {
                 Haptic.success(state.settings.hapticEnabled);
+                disableAllAnimations();
                 addLocation(loc);
                 handleBack();
               }} 
@@ -1055,6 +2232,83 @@ export default function App() {
       <main 
         className="max-w-[390px] mx-auto px-6 pt-[calc(env(safe-area-inset-top)+112px)] pb-32 min-h-screen relative touch-pan-y bottom-content"
       >
+        {/* City Switching Skeleton overlay */}
+        <div id="city-skeleton" style={{
+          display: 'none',
+          position: 'absolute',
+          inset: 0,
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '16px',
+          pointerEvents: 'none',
+          zIndex: 10,
+          transition: 'opacity 0.2s ease',
+        }}>
+          {/* Icon placeholder */}
+          <div style={{
+            width: '80px',
+            height: '80px',
+            borderRadius: '50%',
+            background: 'rgba(255, 255, 255, 0.05)',
+            animation: 'shimmer 1.2s infinite',
+          }} />
+
+          {/* Temp placeholder */}
+          <div style={{
+            width: '120px',
+            height: '60px',
+            borderRadius: '12px',
+            background: 'rgba(255, 255, 255, 0.05)',
+            animation: 'shimmer 1.2s infinite 0.1s',
+          }} />
+
+          {/* Label placeholder */}
+          <div style={{
+            width: '140px',
+            height: '20px',
+            borderRadius: '8px',
+            background: 'rgba(255, 255, 255, 0.05)',
+            animation: 'shimmer 1.2s infinite 0.2s',
+          }} />
+        </div>
+
+        <div id="location-loading-card" style={{
+          display: 'none',
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          textAlign: 'center',
+          zIndex: 500,
+        }} className="select-none pointer-events-none">
+          {/* Pulsing location pin */}
+          <div style={{
+            fontSize: '48px',
+            animation: 'locationPulse 1.2s ease-in-out infinite',
+            display: 'block',
+            marginBottom: '16px',
+          }} className="select-none">📍</div>
+
+          {/* Circular spinner */}
+          <div style={{
+            width: '40px',
+            height: '40px',
+            border: '3px solid rgba(255, 255, 255, 0.15)',
+            borderTop: '3px solid #6366f1',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 16px',
+          }}></div>
+
+          <div style={{
+            fontSize: '15px',
+            color: '#94a3b8',
+            fontWeight: 500,
+            letterSpacing: '0.3px',
+          }}>Adding current location...</div>
+        </div>
+
         {/* Pull to refresh logic handled by gestures.ts */}
         
         <AnimatePresence>
@@ -1097,6 +2351,58 @@ export default function App() {
             >
               <WeatherSkeleton />
             </motion.div>
+          ) : state.locations.length === 0 ? (
+            <motion.div
+              key="empty-state"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              className="flex flex-col items-center justify-between min-h-[calc(100vh-220px)] py-12 px-2 relative"
+            >
+              <div className="flex flex-col items-center mt-8 z-10 w-full">
+                <h1 className="text-[34px] font-bold tracking-tight text-white text-center leading-tight max-w-[325px]">
+                  Welcome to Nimbus Black
+                </h1>
+                <p className="text-white/45 text-[17px] text-center mt-3 max-w-[280px] leading-snug font-normal">
+                  Allow location access to see your local forecast
+                </p>
+              </div>
+
+              {/* Ambient background blob on left */}
+              <div className="absolute -left-16 top-[37%] w-56 h-56 rounded-full bg-amber-500/[0.04] blur-[80px] pointer-events-none select-none" />
+
+              {/* Large snowflake skeleton graphic at bottom right */}
+              <div className="absolute -bottom-16 -right-16 text-white/[0.02] rotate-[24deg] select-none pointer-events-none">
+                <Icons.Snowflake className="w-[280px] h-[280px] stroke-[0.4]" />
+              </div>
+
+              <div className="w-full flex flex-col items-center mt-16 max-w-[340px] z-10 px-4">
+                <motion.button
+                  id="permission-allow"
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => {
+                    Haptic.medium(state.settings.hapticEnabled);
+                    fetchCurrentLocation(false);
+                  }}
+                  className="w-full py-4 px-6 bg-[#a5cbfb] text-[#09101d] rounded-full text-[17px] font-semibold transition-transform duration-200 active:scale-97 hover:bg-[#b5d6ff]"
+                >
+                  Enable Location
+                </motion.button>
+
+                <motion.button
+                  id="add-city-btn"
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => {
+                    Haptic.light(state.settings.hapticEnabled);
+                    openSearch();
+                  }}
+                  className="w-full py-4 px-6 bg-transparent border border-white/10 text-white rounded-full text-[17px] font-semibold transition-all duration-200 hover:bg-white/5 active:scale-97 mt-3"
+                >
+                  Search for a City
+                </motion.button>
+              </div>
+            </motion.div>
           ) : state.error && !activeWeather ? (
             <motion.div
               key="error"
@@ -1134,7 +2440,7 @@ export default function App() {
                     if (activeLocation) {
                       loadWeather(activeLocation, state.activeLocationIndex, true);
                     } else {
-                      addLocation(DEFAULT_LOCATION);
+                      openSearch();
                     }
                   }}
                   className={cn(

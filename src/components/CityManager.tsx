@@ -80,6 +80,7 @@ const CityManager = ({
                 key={`${loc.latitude}-${loc.longitude}-${loc.name}`} 
                 value={loc}
                 className="relative"
+                drag={!loc.isCurrentLocation}
               >
                 <motion.div
                   onClick={() => {
@@ -92,12 +93,21 @@ const CityManager = ({
                   )}
                 >
                   <div className="flex items-center gap-4">
-                    <div className="flex flex-col gap-1 items-center opacity-40 cursor-grab active:cursor-grabbing">
-                      <Icons.GripVertical className="w-4 h-4" />
-                    </div>
+                    {!loc.isCurrentLocation ? (
+                      <div className="flex flex-col gap-1 items-center opacity-40 cursor-grab active:cursor-grabbing">
+                        <Icons.GripVertical className="w-4 h-4" />
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1 items-center select-none text-[15px]">
+                        📍
+                      </div>
+                    )}
                     
                     <div className="flex flex-col">
-                      <span className="text-[17px] font-semibold">{loc.name}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[17px] font-semibold">{loc.name}</span>
+                        {loc.isCurrentLocation && <span className="text-xs text-white/40">Current</span>}
+                      </div>
                       <span className="text-[13px] text-white/45">{loc.country}</span>
                     </div>
                   </div>
@@ -120,12 +130,16 @@ const CityManager = ({
                       <div className="w-8 h-8 rounded-full border border-white/10 border-t-white animate-spin opacity-20" />
                     )}
 
-                    <button 
-                      onClick={(e) => handleRemove(e, i)}
-                      className="p-2 text-white/20 hover:text-red-400/60 transition-colors"
-                    >
-                      <Icons.Trash2 className="w-4 h-4" />
-                    </button>
+                    {!loc.isCurrentLocation ? (
+                      <button 
+                        onClick={(e) => handleRemove(e, i)}
+                        className="p-2 text-white/20 hover:text-red-400/60 transition-colors"
+                      >
+                        <Icons.Trash2 className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <div className="w-8" />
+                    )}
                   </div>
                 </motion.div>
               </Reorder.Item>

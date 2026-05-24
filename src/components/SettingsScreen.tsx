@@ -5,6 +5,7 @@ import { Icons, WeatherIcon } from './WeatherIcons';
 import { Settings, WeatherData, Location } from '../types';
 import { cn, GLASS_STYLE_SUBTLE } from '../lib/utils';
 import { Haptic } from '../lib/haptics';
+import { initializeOneSignal, requestNotificationPermission, syncUserSettingsToFirebase } from '../services/oneSignalService';
 
 interface SettingsScreenProps {
   settings: Settings;
@@ -13,6 +14,8 @@ interface SettingsScreenProps {
   activeWeather?: WeatherData;
   activeLocation?: Location;
   panelStackRef: React.MutableRefObject<(() => void)[]>;
+  handleBack: () => void;
+  pushPanel: (closeFn: () => void, name: string) => void;
 }
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
@@ -32,27 +35,25 @@ const ToggleRow = ({ label, description, value, onToggle, hapticEnabled }: { lab
     </div>
     <button 
       type="button"
+      onTouchStart={(e) => {
+        e.preventDefault();
+        Haptic.medium(hapticEnabled);
+        onToggle();
+      }}
       onClick={() => {
         Haptic.medium(hapticEnabled);
         onToggle();
       }}
       className={cn(
-        "w-[51px] h-[31px] rounded-full transition-all duration-300 relative",
+        "toggle w-[51px] h-[31px] rounded-full transition-all duration-300 relative focus:outline-none focus:ring-0",
         value ? "bg-[#34C759]" : "bg-app-text/10 outline-1 outline-app-border"
       )}
     >
-      <motion.div 
-        layout
+      <div 
         className={cn(
-          "absolute top-[2px] w-[27px] h-[27px] rounded-full bg-white shadow-md will-change-transform",
-          value ? "left-[22px]" : "left-[2px]"
+          "absolute top-[2px] left-[2.5px] w-[27px] h-[27px] rounded-full bg-white shadow-md transition-transform duration-250 ease-[cubic-bezier(0.25,0.46,0.45,0.94)] will-change-transform",
+          value ? "translate-x-[19px]" : "translate-x-0"
         )} 
-        transition={{ 
-          type: "spring", 
-          stiffness: 700, 
-          damping: 35,
-          mass: 0.5
-        }}
       />
     </button>
   </div>
@@ -65,6 +66,13 @@ const SegmentedControl = ({ value, options, onChange, hapticEnabled, layoutId }:
       return (
         <button
           key={opt.value}
+          onTouchStart={(e) => {
+            e.preventDefault();
+            if (!isSelected) {
+              Haptic.light(hapticEnabled);
+              onChange(opt.value);
+            }
+          }}
           onClick={() => {
             if (!isSelected) {
               Haptic.light(hapticEnabled);
@@ -271,11 +279,83 @@ const LoopingWeatherIcon = () => {
   );
 };
 
-const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWeather, activeLocation, panelStackRef }: SettingsScreenProps) => {
+const SettingsScreen = ({ 
+  settings: globalSettings, 
+  onUpdate, 
+  onClose, 
+  activeWeather, 
+  activeLocation, 
+  panelStackRef,
+  handleBack,
+  pushPanel
+}: SettingsScreenProps) => {
   const [localSettings, setLocalSettings] = useState(globalSettings);
   const [showAbout, setShowAbout] = useState(false);
   const [activeSubView, setActiveSubView] = useState<'none' | 'agreement' | 'privacy'>('none');
+  const [pushStatus, setPushStatus] = useState<'idle' | 'registering' | 'synced' | 'error' | 'denied'>('idle');
   const aboutScrollRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const runInit = async () => {
+      try {
+        const playerId = await initializeOneSignal((newId) => {
+          if (newId) {
+            setLocalSettings(prev => {
+              const updated = { ...prev, pushEnabled: true, oneSignalPlayerId: newId };
+              onUpdate(updated);
+              return updated;
+            });
+            setPushStatus('synced');
+          } else {
+            setLocalSettings(prev => {
+              const updated = { ...prev, pushEnabled: false };
+              onUpdate(updated);
+              return updated;
+            });
+            setPushStatus('idle');
+          }
+        });
+
+        if (playerId) {
+          setLocalSettings(prev => {
+            const updated = { ...prev, pushEnabled: true, oneSignalPlayerId: playerId };
+            onUpdate(updated);
+            return updated;
+          });
+          setPushStatus('synced');
+        }
+      } catch (err) {
+        console.warn('OneSignal initialization failed:', err);
+      }
+    };
+    runInit();
+  }, []);
+
+  const handlePushToggle = async () => {
+    if (localSettings.pushEnabled) {
+      const updated = { ...localSettings, pushEnabled: false };
+      setLocalSettings(updated);
+      onUpdate(updated);
+      setPushStatus('idle');
+
+      if (localSettings.oneSignalPlayerId) {
+        await syncUserSettingsToFirebase(localSettings.oneSignalPlayerId, updated, activeLocation || null);
+      }
+    } else {
+      setPushStatus('registering');
+      const playerId = await requestNotificationPermission();
+      if (playerId) {
+        setPushStatus('synced');
+        const updated = { ...localSettings, pushEnabled: true, oneSignalPlayerId: playerId };
+        setLocalSettings(updated);
+        onUpdate(updated);
+
+        await syncUserSettingsToFirebase(playerId, updated, activeLocation || null);
+      } else {
+        setPushStatus('denied');
+      }
+    }
+  };
 
   useEffect(() => {
     if (showAbout) {
@@ -309,14 +389,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
     }
   }, [showAbout]);
 
-  const pushPanel = (closeFn: () => void, name: string) => {
-    window.history.pushState({ panel: name }, "");
-    panelStackRef.current.push(closeFn);
-  };
-
-  const handleBack = () => {
-    window.history.back();
-  };
+  // pushPanel and handleBack passed down from parent to maintain unified browser state
 
   useEffect(() => {
     const handleSwipeLeft = () => {
@@ -349,11 +422,17 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
     };
   }, [localSettings, showAbout, activeSubView, onUpdate]);
 
-  const updateSetting = <T extends keyof Settings>(key: T, value: Settings[T]) => {
+  const updateSetting = async <T extends keyof Settings>(key: T, value: Settings[T]) => {
     const newSettings = { ...localSettings, [key]: value };
     setLocalSettings(newSettings);
     Haptic.light(localSettings.hapticEnabled);
     onUpdate(newSettings);
+
+    if (newSettings.pushEnabled && newSettings.oneSignalPlayerId) {
+      // Run in background without awaiting to prevent UI freeze/lag
+      syncUserSettingsToFirebase(newSettings.oneSignalPlayerId, newSettings, activeLocation || null)
+        .catch(err => console.warn("Failed to sync user settings asynchronously:", err));
+    }
   };
 
   const SubView = ({ title, content, onClose }: { title: string; content: string; onClose: () => void }) => (
@@ -411,7 +490,16 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
       >
         <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">
           <header className="flex items-center mb-12 px-1 h-10">
-             {/* Redundant back button removed as App.tsx provides a z-index:70 button at this position */}
+            <button 
+              onClick={() => {
+                Haptic.light(localSettings.hapticEnabled);
+                handleBack();
+              }}
+              className="flex items-center gap-1.5 text-app-text-dim hover:text-white transition-colors"
+            >
+              <Icons.ChevronLeft className="w-5 h-5 text-app-text-dim" style={{ strokeWidth: 2 }} />
+              <span className="text-[15px] font-bold">Settings</span>
+            </button>
           </header>
 
           <div className="flex flex-col items-center px-4">
@@ -490,9 +578,52 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
       <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+112px)] pb-24">
         <h1 className="text-[34px] font-bold text-app-text mb-8 tracking-tight px-1">Settings</h1>
 
-        <Section title="Weather alerts">
+        <Section title="Push alerts & summaries">
+          <ToggleRow 
+            label="Enable push alerts" 
+            description={
+              pushStatus === 'registering' ? 'Requesting permission...' :
+              pushStatus === 'synced' ? 'Active & Synced with Cloud' :
+              pushStatus === 'denied' ? 'Permission Denied' :
+              'Get native reports on your device'
+            }
+            value={localSettings.pushEnabled} 
+            hapticEnabled={localSettings.hapticEnabled}
+            onToggle={handlePushToggle} 
+          />
+          <AnimatePresence>
+            {localSettings.pushEnabled && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="overflow-hidden bg-white/[0.01]"
+              >
+                <div className="divide-y divide-app-border">
+                  <ToggleRow 
+                    label="Morning AI weather summary" 
+                    description="Today's weather report custom-crafted by Gemini"
+                    value={localSettings.alertMorningSummary} 
+                    hapticEnabled={localSettings.hapticEnabled}
+                    onToggle={() => updateSetting('alertMorningSummary', !localSettings.alertMorningSummary)} 
+                  />
+                  <ToggleRow 
+                    label="Night AI weather summary" 
+                    description="Tomorrow's weather report custom-crafted by Gemini"
+                    value={localSettings.alertNightSummary} 
+                    hapticEnabled={localSettings.hapticEnabled}
+                    onToggle={() => updateSetting('alertNightSummary', !localSettings.alertNightSummary)} 
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </Section>
+
+        <Section title="Threshold triggers">
           <SliderRow 
-            label="Rain alerts" 
+            label="Rain threshold" 
             value={localSettings.alertRain} 
             currentValue={localSettings.rainThreshold}
             hapticEnabled={localSettings.hapticEnabled}
@@ -500,7 +631,7 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
             onValueChange={(val) => updateSetting('rainThreshold', val)}
           />
           <SliderRow 
-            label="Snow alerts" 
+            label="Snow threshold" 
             value={localSettings.alertDaily} 
             currentValue={localSettings.snowThreshold}
             hapticEnabled={localSettings.hapticEnabled}
@@ -553,10 +684,20 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
             ]}
             onChange={(val) => updateSetting('unitVisibility', val)}
           />
+          <SelectRow 
+            label="Time Format" 
+            value={localSettings.timeFormat === '24h' ? '24h' : '12h'} 
+            hapticEnabled={localSettings.hapticEnabled}
+            options={[
+              { label: '12-hour', value: '12h' },
+              { label: '24-hour', value: '24h' }
+            ]}
+            onChange={(val) => updateSetting('timeFormat', val)}
+          />
         </Section>
 
-        <Section title="Icons">
-          <div className="p-8 flex items-center justify-center gap-12 bg-white/[0.02] rounded-3xl">
+        <Section title="Icons & Atmosphere">
+          <div className="p-8 flex items-center justify-center gap-12 bg-white/[0.02]">
             <button 
               type="button"
               onClick={(e) => {
@@ -599,6 +740,18 @@ const SettingsScreen = ({ settings: globalSettings, onUpdate, onClose, activeWea
               )}>Coloured</p>
             </button>
           </div>
+
+          <SelectRow 
+            label="Gradient animations" 
+            value={localSettings.gradientAnimation ?? 'on'} 
+            hapticEnabled={localSettings.hapticEnabled}
+            options={[
+              { label: 'Off', value: 'off' },
+              { label: 'On', value: 'on' },
+              { label: 'Static', value: 'static' }
+            ]}
+            onChange={(val) => updateSetting('gradientAnimation', val)}
+          />
         </Section>
 
         <Section title="General">

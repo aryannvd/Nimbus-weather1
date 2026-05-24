@@ -10,26 +10,45 @@ interface SunPathProps {
   settings: Settings;
 }
 
+const width = 350;
+const height = 150; 
+const horizonY = 90;
+const curveHeight = 60; 
+const startX = 60;
+const endX = 290;
+const centerX = (startX + endX) / 2;
+const daylightControlY = horizonY - (2 * curveHeight);
+
 export default function SunPath({ weather, settings }: SunPathProps) {
-  const containerRef = React.useRef(null);
-  const isInView = useInView(containerRef, { once: true, amount: 0.3 });
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const isInView = useInView(containerRef, { once: false, amount: 0.1 });
   
   // Local state to force re-renders for real-time sun movement
   const [, setTick] = React.useState(0);
+  
+  // Motion setup for smooth, path-aligned animation
+  const motionProgress = useMotionValue(0);
+
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 60000);
     return () => clearInterval(interval);
   }, []);
 
-  if (!weather?.daily?.sunrise?.[0] || !weather?.daily?.sunset?.[0]) return null;
+  const iconX = useTransform(motionProgress, (v) => 
+    Math.pow(1 - v, 2) * startX + 2 * (1 - v) * v * centerX + Math.pow(v, 2) * endX
+  );
+  const iconY = useTransform(motionProgress, (v) => 
+    Math.pow(1 - v, 2) * horizonY + 2 * (1 - v) * v * daylightControlY + Math.pow(v, 2) * horizonY
+  );
 
   // BUG 1 FIX: Calculate current time in the target location's timezone
   const getNowInLocation = (timezone: string) => {
     try {
       const now = new Date();
+      const resolvedTZ = timezone === 'auto' ? undefined : timezone;
       // Use toLocaleString to get the time in the target timezone
       const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
+        timeZone: resolvedTZ,
         year: 'numeric',
         month: 'numeric',
         day: 'numeric',
@@ -43,240 +62,248 @@ export default function SunPath({ weather, settings }: SunPathProps) {
       const partValues: Record<string, any> = {};
       parts.forEach(p => partValues[p.type] = p.value);
       
+      const yr = parseInt(partValues.year);
+      const mo = parseInt(partValues.month);
+      const dy = parseInt(partValues.day);
+      const hr = parseInt(partValues.hour);
+      const mn = parseInt(partValues.minute);
+      const sc = parseInt(partValues.second) || 0;
+      
+      if (isNaN(yr) || isNaN(mo) || isNaN(dy) || isNaN(hr) || isNaN(mn)) {
+        throw new Error('Invalid date components');
+      }
       // Construct a Date object that represents the local time in that city
-      return new Date(
-        parseInt(partValues.year),
-        parseInt(partValues.month) - 1,
-        parseInt(partValues.day),
-        parseInt(partValues.hour),
-        parseInt(partValues.minute),
-        parseInt(partValues.second)
-      );
+      return new Date(yr, mo - 1, dy, hr, mn, sc);
     } catch (e) {
       console.warn('Timezone conversion failed, falling back to naive:', e);
       return new Date();
     }
   };
 
-  const nowInLocation = getNowInLocation(weather.timezone);
+  const nowInLocation = getNowInLocation(weather?.timezone || "UTC");
   const currentHour = nowInLocation.getHours();
   const currentMinute = nowInLocation.getMinutes();
   const nowMinutes = currentHour * 60 + currentMinute;
 
   // Helper to get minutes from H:M format
   const getMinutesFromISO = (iso: string) => {
+    if (!iso) return null;
     // Open-Meteo with timezone=auto returns "YYYY-MM-DDTHH:MM"
     const timePart = iso.split('T')[1] || iso;
+    if (!timePart || !timePart.includes(':')) return null;
     const [h, m] = timePart.split(':').map(Number);
-    return h * 60 + m;
+    return (h || 0) * 60 + (m || 0);
   };
-
-  const sunriseMinutes = getMinutesFromISO(weather.daily.sunrise[0]);
-  const sunsetMinutes = getMinutesFromISO(weather.daily.sunset[0]);
-  
-  const totalDaylightMinutes = sunsetMinutes - sunriseMinutes;
-  const currentElapsedMinutes = nowMinutes - sunriseMinutes;
-
-  if (isNaN(totalDaylightMinutes) || totalDaylightMinutes <= 0) return null;
-
-  // Progress logic: 0 at sunrise, 1 at sunset
-  const isSunVisible = nowMinutes >= sunriseMinutes && nowMinutes <= sunsetMinutes;
-  let progress = currentElapsedMinutes / totalDaylightMinutes;
-  
-  // Night handling: clamp to boundaries
-  if (nowMinutes < sunriseMinutes) progress = 0;
-  if (nowMinutes > sunsetMinutes) progress = 1;
-  
-  progress = Math.max(0, Math.min(1, progress));
 
   // Display formatting for labels using the target timezone
   const formatTime = (iso: string) => {
+    if (!iso) return "";
     try {
-      // Open-Meteo with timezone=auto returns strings that are ALREADY local to the city.
-      // To display them exactly as-is without browser offset interference, 
-      // we append 'Z' to treat it as UTC and then format it in UTC.
       const date = parseISO(iso.includes('Z') ? iso : `${iso}:00Z`);
+      const is24h = settings.timeFormat === '24h';
       return date.toLocaleTimeString("en-US", {
         timeZone: "UTC",
         hour: "2-digit",
         minute: "2-digit",
-        hour12: true
+        hour12: !is24h,
+        ...(is24h ? { hourCycle: 'h23' } : {})
       });
     } catch {
       return iso;
     }
   };
 
-  const sunriseLabel = formatTime(weather.daily.sunrise[0]);
-  const sunsetLabel = formatTime(weather.daily.sunset[0]);
-
-  // Visual Geometry based on image:
-  // A perfect smooth Bézier arch (parabola approximation)
-  const width = 350;
-  const height = 200; // Increased height to accommodate the night arch below
-  const horizonY = 100; // Center the horizon
-  const curveHeight = 60; 
+  const sunriseMinutes = getMinutesFromISO(weather?.daily?.sunrise?.[0] || "") || 360;
+  const sunsetMinutes = getMinutesFromISO(weather?.daily?.sunset?.[0] || "") || 1080;
+  const moonriseMinutes = getMinutesFromISO(weather?.daily?.moonrise?.[0] || "");
+  const moonsetMinutes = getMinutesFromISO(weather?.daily?.moonset?.[0] || "");
   
-  const startX = 60;
-  const endX = 290;
-  const centerX = (startX + endX) / 2;
-  const daylightControlY = horizonY - (2 * curveHeight);
+  // Determine if it is Day or Night for the cycle
+  const isNight = nowMinutes < sunriseMinutes || nowMinutes > sunsetMinutes;
+
+  // Calculate active span for the current path (Day or Night)
+  let activeStartMinutes: number;
+  let activeEndMinutes: number;
+  let cycleProgress: number;
+  let cycleLabelStart: string;
+  let cycleLabelEnd: string;
+  let cycleStartName: string;
+  let cycleEndName: string;
+
+  if (!isNight) {
+    // Day Cycle: Sunrise to Sunset
+    activeStartMinutes = sunriseMinutes;
+    activeEndMinutes = sunsetMinutes;
+    cycleLabelStart = formatTime(weather?.daily?.sunrise?.[0] || "2026-05-19T06:00");
+    cycleLabelEnd = formatTime(weather?.daily?.sunset?.[0] || "2026-05-19T18:00");
+    cycleStartName = "Sunrise";
+    cycleEndName = "Sunset";
+  } else {
+    // Night Cycle: Prefer actual Moonrise->Moonset if available, 
+    // but fallback to a pure "Night" cycle (Sunset -> Sunrise next day) if moon data is missing
+    if (moonriseMinutes !== null && moonsetMinutes !== null && moonriseMinutes !== moonsetMinutes) {
+      activeStartMinutes = moonriseMinutes;
+      activeEndMinutes = moonsetMinutes;
+      cycleLabelStart = formatTime(weather?.daily?.moonrise?.[0] || "");
+      cycleLabelEnd = formatTime(weather?.daily?.moonset?.[0] || "");
+      cycleStartName = "Moonrise";
+      cycleEndName = "Moonset";
+    } else {
+      // Fallback: Night is from Sunset to next Sunrise
+      activeStartMinutes = sunsetMinutes;
+      // If we are before midnight, next sunrise is tomorrow. If after, sunrise is later today.
+      const tomorrowSunrise = getMinutesFromISO(weather?.daily?.sunrise?.[1] || "");
+      activeEndMinutes = (tomorrowSunrise !== null) ? (tomorrowSunrise + 1440) : (sunriseMinutes + 1440);
+      
+      cycleLabelStart = formatTime(weather?.daily?.sunset?.[0] || "2026-05-19T18:00");
+      cycleLabelEnd = weather?.daily?.sunrise?.[1] ? formatTime(weather.daily.sunrise[1]) : formatTime(weather?.daily?.sunrise?.[0] || "2026-05-19T06:00");
+      cycleStartName = "Sunset";
+      cycleEndName = "Sunrise";
+    }
+
+    if (activeStartMinutes > activeEndMinutes) {
+      if (nowMinutes >= activeStartMinutes) {
+        activeEndMinutes += 1440;
+      } else {
+        activeStartMinutes -= 1440;
+      }
+    }
+  }
+
+  const cycleDuration = activeEndMinutes - activeStartMinutes;
+  const cycleElapsed = nowMinutes - activeStartMinutes;
+  
+  cycleProgress = Math.max(0, Math.min(1, cycleElapsed / cycleDuration));
+  const isIconVisible = cycleProgress > 0 && cycleProgress < 1;
+
   const troughHeight = curveHeight * 0.4;
 
-  // Paths following the image style: ensuring horizontal entry (slope 0) at the lowest points on the edges
   const daylightArch = `M ${startX} ${horizonY} Q ${centerX} ${daylightControlY} ${endX} ${horizonY}`;
-  // Left trough: starts horizontal at the edge (lowest point) and curves up to sunrise
   const leftTrough = `M 10 ${horizonY + troughHeight} Q 35 ${horizonY + troughHeight} ${startX} ${horizonY}`;
-  // Right trough: starts at sunset and curves down to be horizontal at the edge (lowest point)
   const rightTrough = `M ${endX} ${horizonY} Q ${width - 35} ${horizonY + troughHeight} ${width - 10} ${horizonY + troughHeight}`;
 
-  // Motion setup for smooth, path-aligned animation
-  const motionProgress = useMotionValue(0);
-  
   useEffect(() => {
     if (isInView) {
-      animate(motionProgress, progress, { 
+      animate(motionProgress, cycleProgress, { 
         duration: 2.5, 
-        ease: [0.34, 1.56, 0.64, 1] // Springy bounce for a premium native feel
+        ease: [0.34, 1.56, 0.64, 1] 
       });
     }
-  }, [isInView, progress, motionProgress]);
-
-  // Quadratic Bézier formula derived values for pixel-perfect curve tracking
-  const sunX = useTransform(motionProgress, (v) => 
-    Math.pow(1 - v, 2) * startX + 2 * (1 - v) * v * centerX + Math.pow(v, 2) * endX
-  );
-  const sunY = useTransform(motionProgress, (v) => 
-    Math.pow(1 - v, 2) * horizonY + 2 * (1 - v) * v * daylightControlY + Math.pow(v, 2) * horizonY
-  );
+  }, [isInView, cycleProgress, motionProgress]);
 
   return (
-    <div ref={containerRef} className="w-full px-2 mt-2 overflow-hidden bg-transparent">
-      <div className="relative w-full h-[160px]">
-        <svg viewBox={`0 0 ${width} 160`} className="w-full h-full overflow-visible translate-x-1">
+    <div ref={containerRef} className="w-full px-2 mt-8 mb-4 overflow-hidden relative">
+      <div className="relative w-full h-[150px]">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible translate-x-0">
           <defs>
+            {/* Day Gradient */}
             <linearGradient id="sunDayGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              {/* Morning: Violet -> Red -> Yellow */}
               <stop offset="0%" stopColor="#9C27B0" /> 
               <stop offset="15%" stopColor="#FF3D00" />
               <stop offset="35%" stopColor="#FFD600" />
-              
-              {/* Noon: Pure White-Yellow spotlight */}
               <stop offset="50%" stopColor="#FFFFFF" />
-              
-              {/* Afternoon/Sunset: Yellow -> Red -> Violet */}
               <stop offset="65%" stopColor="#FFD600" />
               <stop offset="85%" stopColor="#FF3D00" />
               <stop offset="100%" stopColor="#9C27B0" />
+            </linearGradient>
+
+            {/* Moon Gradient */}
+            <linearGradient id="moonNightGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#2D3B4E" /> 
+              <stop offset="25%" stopColor="#B3E5FC" />
+              <stop offset="50%" stopColor="#FFFFFF" />
+              <stop offset="75%" stopColor="#B3E5FC" />
+              <stop offset="100%" stopColor="#2D3B4E" />
             </linearGradient>
 
             <clipPath id="horizonClip">
               <rect x="-50" y="-50" width={width + 100} height={horizonY + 50} />
             </clipPath>
 
-            <mask id="sunGap">
+            <mask id="iconGap">
               <rect x="-50" y="-50" width={width + 100} height={height + 100} fill="white" />
               <motion.circle 
-                style={{ cx: sunX, cy: sunY }}
-                animate={{ r: isSunVisible ? 16 : 0 }}
+                cx={iconX}
+                cy={iconY}
+                animate={{ r: isIconVisible ? 18 : 0 }}
                 fill="black" 
               />
             </mask>
-
-            <filter id="sunPulse">
-              <feGaussianBlur stdDeviation="4" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
           </defs>
 
-          {/* Horizon Line - Long and subtle */}
+          {/* Horizon Line */}
           <line 
             x1="0" y1={horizonY} x2={width} y2={horizonY} 
             stroke="var(--border-color)" 
             strokeWidth="1" 
+            opacity="0.5"
           />
 
-          {/* 1. Side Troughs (Below Horizon) - Faded */}
-          <path 
-            d={leftTrough}
-            fill="none" 
-            stroke="var(--border-color)" 
-            strokeWidth="5" 
-            strokeLinecap="round"
-          />
-          <path 
-            d={rightTrough}
-            fill="none" 
-            stroke="var(--border-color)" 
-            strokeWidth="5" 
-            strokeLinecap="round"
-          />
+          {/* Troughs */}
+          <path d={leftTrough} fill="none" stroke="var(--border-color)" strokeWidth="4.5" strokeLinecap="round" opacity="0.3" />
+          <path d={rightTrough} fill="none" stroke="var(--border-color)" strokeWidth="4.5" strokeLinecap="round" opacity="0.3" />
 
-          {/* Group for elements ABOVE horizon, strictly clipped */}
+          {/* Elements ABOVE horizon */}
           <g clipPath="url(#horizonClip)">
-            {/* Inner group with mask for the paths only */}
-            <g mask="url(#sunGap)">
-              {/* 2. Future Path (Theme-aware) - Top Arch */}
+            <g mask="url(#iconGap)">
+              {/* Future Path */}
               <path 
                 d={daylightArch}
                 fill="none" 
-                stroke="var(--border-color)" 
-                strokeWidth="5" 
-                strokeLinecap="butt"
+                stroke="white" 
+                strokeWidth="4" 
+                strokeLinecap="round"
+                opacity="0.1"
               />
 
-              {/* 3. Passed Path (Atmospheric Gradient) - Progressing to Current Time */}
+              {/* Active Path */}
               <motion.path 
                 d={daylightArch}
                 fill="none" 
-                stroke="url(#sunDayGradient)" 
-                strokeWidth="5" 
-                strokeLinecap="butt"
-                initial={{ pathLength: 0 }}
-                animate={isInView ? { pathLength: progress } : {}}
-                transition={{ duration: 2.5, ease: [0.34, 1.56, 0.64, 1] }}
+                stroke={isNight ? "url(#moonNightGradient)" : "url(#sunDayGradient)"} 
+                strokeWidth="5.5" 
+                strokeLinecap="round"
+                style={{ pathLength: motionProgress }}
               />
             </g>
 
-            {/* Current Progress Point / Sun Icon - Mini version of WeatherHero icon */}
+            {/* Current Cycle Icon */}
             <motion.g
-              style={{ x: sunX, y: sunY }}
+              style={{ x: iconX, y: iconY }}
               initial={{ opacity: 0, scale: 0 }}
-              animate={isInView ? { 
-                opacity: isSunVisible ? 1 : 0, 
-                scale: isSunVisible ? 1 : 0 
-              } : {}}
+              animate={isInView && isIconVisible ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0 }}
               transition={{ duration: 0.5 }}
             >
               <foreignObject x="-14" y="-14" width="28" height="28">
                 <div className="flex items-center justify-center w-full h-full">
-                  <WeatherIcon 
-                    name="Sun" 
-                    forceColoured={true} 
-                    className="w-7 h-7" 
-                    strokeWidth={2}
-                  />
+                  {isNight ? (
+                    <WeatherIcon 
+                      name="Moon" 
+                      className="w-7 h-7 text-blue-200" 
+                      style="outline"
+                      strokeWidth={1.8}
+                      forceColoured={false}
+                    />
+                  ) : (
+                    <WeatherIcon 
+                      name="Sun" 
+                      forceColoured={true} 
+                      className="w-7 h-7" 
+                      strokeWidth={2}
+                    />
+                  )}
                 </div>
               </foreignObject>
             </motion.g>
           </g>
 
-          {/* Sunrise/Sunset Times positioned at the bottom extreme left and right */}
-          <text 
-            x={15} 
-            y={horizonY + 42} 
-            textAnchor="start" 
-            className="fill-app-text-dim text-[13px] font-bold tracking-tight"
-          >
-            {sunriseLabel}
+          {/* Labels */}
+          <text x={startX - 15} y={horizonY + 45} textAnchor="end" className="fill-app-text font-bold text-[11px] tracking-tight">
+            {cycleLabelStart}
           </text>
-          <text 
-            x={width - 15} 
-            y={horizonY + 42} 
-            textAnchor="end" 
-            className="fill-app-text-dim text-[13px] font-bold tracking-tight"
-          >
-            {sunsetLabel}
+
+          <text x={endX + 15} y={horizonY + 45} textAnchor="start" className="fill-app-text font-bold text-[11px] tracking-tight">
+            {cycleLabelEnd}
           </text>
         </svg>
       </div>

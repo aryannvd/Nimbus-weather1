@@ -9,6 +9,9 @@ export interface Location {
   timezone: string;
   type?: string;
   featureCode?: string;
+  isGeolocated?: boolean;
+  isCurrentLocation?: boolean;
+  icon?: string;
 }
 
 export interface WeatherData {
@@ -29,11 +32,14 @@ export interface WeatherData {
   hourly: {
     time: string[];
     temperature: number[];
+    temperature_2m?: number[];
     weatherCode: number[];
+    weathercode?: number[];
     precipitationProbability: number[];
     windDirection: number[];
     windSpeed?: number[];
     snowfall?: number[];
+    precipitation?: number[];
   };
   daily: {
     time: string[];
@@ -42,6 +48,8 @@ export interface WeatherData {
     temperatureMin: number[];
     sunrise: string[];
     sunset: string[];
+    moonrise: string[];
+    moonset: string[];
     uvIndex: number[];
     moonPhase: number[];
     precipitationSum: number[];
@@ -55,6 +63,8 @@ export interface WeatherData {
     freshnessLabel?: string;
     isStale?: boolean;
     isUnavailable?: boolean;
+    standard?: 'IN' | 'US';
+    standardLabel?: string;
     pm10?: number;
     pm2_5?: number;
     no2?: number;
@@ -84,6 +94,12 @@ export interface Settings {
   alertTrip: boolean;
   alertDaily: boolean;
   alertRealtime: boolean;
+  timeFormat?: '12h' | '24h';
+  pushEnabled: boolean;
+  alertMorningSummary: boolean;
+  alertNightSummary: boolean;
+  oneSignalPlayerId?: string;
+  gradientAnimation?: 'off' | 'on' | 'static';
 }
 
 export interface WeatherState {

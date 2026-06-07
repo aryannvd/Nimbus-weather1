@@ -1,5 +1,5 @@
 # Nimbus Weather🌤️
-### *Real-time weather, beautifully simple.*
+### *Real-time weather, beautifully simple.* 
 
 ![Static Badge](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Static Badge](https://img.shields.io/badge/PWA-Ready-purple?style=flat-square)

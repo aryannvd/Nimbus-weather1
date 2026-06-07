@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { formatTemp } from './lib/units';
 import { Location, WeatherData, WeatherState, Settings } from './types';
-import { fetchWeather, fetchWeatherBulk, getMoonPhaseInfo, getCurrentHourIndex, reverseGeocode, getCurrentWeatherState, fetchAQI, mapWAQIResultToAirQuality, getDataAgeHours } from './services/weatherService';
+import { fetchWeather, fetchWeatherBulk, getMoonPhaseInfo, getCurrentHourIndex, reverseGeocode, getCurrentWeatherState, fetchAQI, mapWAQIResultToAirQuality, getDataAgeHours, getAQIFromCacheOrLive } from './services/weatherService';
 import { getCachedWeatherData, saveWeatherData, STORAGE_KEYS, getCityKey, CACHE_EXPIRY } from './lib/storage';
 import { initGestures } from './lib/gestures';
 import WeatherSkeleton from './components/WeatherSkeleton';
-import AtmosphereFX from './components/AtmosphereFX';
 import SearchBar from './components/SearchBar';
 import WeatherHero from './components/WeatherHero';
 import { HourlyForecast, DailyForecast } from './components/Forecasts';
@@ -16,6 +15,7 @@ import { motion, AnimatePresence, useMotionValue, useTransform, useSpring } from
 import { cn } from './lib/utils';
 import SettingsScreen from './components/SettingsScreen';
 import CityManager from './components/CityManager';
+import WeatherRadarMap from './components/WeatherRadarMap';
 import AlertsDisplay from './components/AlertsDisplay';
 import { Haptic } from './lib/haptics';
 import { format } from 'date-fns';
@@ -43,8 +43,7 @@ const INITIAL_SETTINGS: Settings = {
   timeFormat: '12h',
   pushEnabled: false,
   alertMorningSummary: false,
-  alertNightSummary: false,
-  gradientAnimation: 'on'
+  alertNightSummary: false
 };
 
 const LocationState = {
@@ -119,8 +118,14 @@ const resumeAnimationsOnCard = (cardEl: HTMLElement) => {
   });
 };
 
-const disableAllAnimations = () => {
+// Single source of truth for animation state
+let animationsEnabled = false;
+
+const killAnimations = () => {
+  animationsEnabled = false;
   if (typeof window !== 'undefined') {
+    document.documentElement.style.setProperty("--animation-state", "paused");
+    document.body.setAttribute("data-animations", "off");
     document.body.classList.add("no-animations");
     document.querySelectorAll(".city-card, .atmosphere").forEach(card => {
       pauseAnimationsOnCard(card as HTMLElement);
@@ -128,29 +133,33 @@ const disableAllAnimations = () => {
   }
 };
 
-const enableAllAnimations = () => {
+const enableAnimations = () => {
+  animationsEnabled = true;
   if (typeof window !== 'undefined') {
-    requestAnimationFrame(() => {
-      document.body.classList.remove("no-animations");
-      document.querySelectorAll(
-        "[class*='animate'], " +
-        "[class*='particle'], " +
-        "[class*='atmosphere']"
-      ).forEach(el => {
-        (el as HTMLElement).style.animationPlayState = "running";
-      });
-      // Resume only active card after render
-      const activeCard = document.querySelector("#swipe-layer") as HTMLElement;
-      if (activeCard) {
-        resumeAnimationsOnCard(activeCard);
-      }
-      const atmosphere = document.querySelector(".atmosphere") as HTMLElement;
-      if (atmosphere) {
-        resumeAnimationsOnCard(atmosphere);
-      }
+    document.documentElement.style.setProperty("--animation-state", "running");
+    document.body.setAttribute("data-animations", "on");
+    document.body.classList.remove("no-animations");
+    document.querySelectorAll(
+      "[class*='animate'], " +
+      "[class*='particle'], " +
+      "[class*='atmosphere']"
+    ).forEach(el => {
+      (el as HTMLElement).style.animationPlayState = "running";
     });
+    // Resume only active card after render
+    const activeCard = document.querySelector("#swipe-layer") as HTMLElement;
+    if (activeCard) {
+      resumeAnimationsOnCard(activeCard);
+    }
+    const atmosphere = document.querySelector(".atmosphere") as HTMLElement;
+    if (atmosphere) {
+      resumeAnimationsOnCard(atmosphere);
+    }
   }
 };
+
+const disableAllAnimations = killAnimations;
+const enableAllAnimations = enableAnimations;
 
 // Step 4: Throttled rAF loop for lightweight animation coordination
 if (typeof window !== 'undefined') {
@@ -267,7 +276,6 @@ export default function App() {
         parsed.theme = 'black';
         if (!parsed.unitPrecipitation) parsed.unitPrecipitation = 'mm';
         if (parsed.iconStyle === '3d') parsed.iconStyle = 'outline';
-        if (!parsed.gradientAnimation) parsed.gradientAnimation = 'on';
         cachedSettings = parsed;
       }
       
@@ -343,6 +351,36 @@ export default function App() {
     if (!city) return;
 
     const cityKey = getCityKey(city);
+
+    // Prioritize rendering cached AQI data immediately if available
+    const cachedAqi = getAQIFromCacheOrLive(cityKey);
+    if (cachedAqi) {
+      console.log(`Pristine cache hit for AQI in ${city.name} — rendering immediately`);
+      setState(prev => {
+        if (prev.locations.length <= index || prev.locations[index]?.name !== city.name) {
+          return prev;
+        }
+        const currentWeatherData = prev.weatherData[index];
+        if (!currentWeatherData) {
+          return prev;
+        }
+        // Save rendering frames if they are identical
+        if (currentWeatherData.airQuality?.usAqi === cachedAqi.usAqi) {
+          return prev;
+        }
+        return {
+          ...prev,
+          weatherData: {
+            ...prev.weatherData,
+            [index]: {
+              ...currentWeatherData,
+              airQuality: cachedAqi
+            }
+          }
+        };
+      });
+    }
+
     console.log("Fetching AQI for:", city.name);
 
     try {
@@ -373,14 +411,21 @@ export default function App() {
         if (!currentWeatherData) {
           return prev;
         }
+        const updatedWeatherData = {
+          ...currentWeatherData,
+          airQuality: parsedAQI,
+        };
+        // Persist the updated AQI data in localStorage cache
+        try {
+          saveWeatherData(cityKey, updatedWeatherData);
+        } catch (e) {
+          console.warn("Failed to persist updated AQI in localStorage", e);
+        }
         return {
           ...prev,
           weatherData: {
             ...prev.weatherData,
-            [index]: {
-              ...currentWeatherData,
-              airQuality: parsedAQI,
-            }
+            [index]: updatedWeatherData
           }
         };
       });
@@ -1032,48 +1077,56 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const refreshAllCitiesBackground = async () => {
-      // Small 3s delay on app boot before performing check
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      if (!navigator.onLine) return;
+    const initialRefresh = async () => {
+      const locations = stateRef.current.locations;
+      const initialIndex = stateRef.current.activeLocationIndex;
+      const activeHasCache = !!stateRef.current.weatherData[initialIndex];
 
-      console.log("Startup silent background refresh beginning...");
-      const locations = [...stateRef.current.locations];
-      for (let i = 0; i < locations.length; i++) {
-        const city = locations[i];
-        if (!city) continue;
-
-        // Space requests to avoid overloading the API
-        await new Promise(resolve => setTimeout(resolve, 800));
-
-        // Skip if cache is reasonably fresh (older than 10 minutes)
-        const cityKey = getCityKey(city);
-        const cached = getCachedWeatherData(cityKey);
-        if (cached && (Date.now() - cached.ts < 10 * 60 * 1000)) {
-          continue;
+      if (activeHasCache) {
+        // Cached data is available! Refresh in the background
+        setIsRefreshing(true);
+        if (locations.length > 0) {
+          try {
+            await loadWeatherBatch(locations, 0, true);
+          } catch (e) {
+            console.warn("Initial active weather refresh failed:", e);
+          }
         }
-
-        try {
-          const data = await fetchWeather(city.latitude, city.longitude, city.timezone, city.name, city.country);
-          saveWeatherData(cityKey, data);
-          setState(prev => {
-            // Verify location is still at this position and matches
-            if (prev.locations[i]?.name === city.name) {
-              return {
-                ...prev,
-                weatherData: { ...prev.weatherData, [i]: data }
-              };
-            }
-            return prev;
-          });
-          console.log(`Silent layout updated for: ${city.name}`);
-        } catch (e) {
-          console.warn(`Silent background refresh failed for ${city.name}:`, e);
+        setIsRefreshing(false);
+      } else {
+        // No cache available! Show blocking skeleton
+        setState(prev => ({ ...prev, loading: true }));
+        showCitySkeleton();
+        if (locations.length > 0) {
+          try {
+            await loadWeatherBatch(locations, 0, true);
+          } catch (e) {
+            console.warn("Initial active weather refresh failed:", e);
+          }
         }
+        setState(prev => ({ ...prev, loading: false }));
+        hideCitySkeleton();
       }
     };
 
-    refreshAllCitiesBackground();
+    initialRefresh();
+
+    // 2. Continuous background refresh every 5 minutes
+    const intervalId = setInterval(async () => {
+      if (!navigator.onLine) return;
+      console.log("Background weather refresh firing...");
+      const locations = stateRef.current.locations;
+      if (locations.length > 0) {
+        try {
+          // Silent background refresh (no loader since forceRefresh is false)
+          await loadWeatherBatch(locations, 0, false);
+        } catch (e) {
+          console.warn("Background weather refresh failed:", e);
+        }
+      }
+    }, 5 * 60 * 1000);
+
+    return () => clearInterval(intervalId);
   }, []);
 
   useEffect(() => {
@@ -1114,6 +1167,7 @@ export default function App() {
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showCityManager, setShowCityManager] = useState(false);
+  const [showRadarMap, setShowRadarMap] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const [activeAlerts, setActiveAlerts] = useState<any[]>([]);
   
@@ -1229,6 +1283,157 @@ export default function App() {
     }
   };
 
+  const isNightHour = (now: number | Date, sunriseISO?: string, sunsetISO?: string): boolean => {
+    if (!sunriseISO || !sunsetISO) {
+      const hr = new Date(now).getHours();
+      return hr < 6 || hr >= 19;
+    }
+    try {
+      const nowTime = new Date(now).getTime();
+      const riseTime = new Date(sunriseISO).getTime();
+      const setTime = new Date(sunsetISO).getTime();
+      return nowTime < riseTime || nowTime > setTime;
+    } catch {
+      const hr = new Date(now).getHours();
+      return hr < 6 || hr >= 19;
+    }
+  };
+
+  const applyWeatherGradient = (weatherCode: number, isNight: boolean) => {
+    console.log("Weather gradient applied for:", weatherCode, "isNight:", isNight);
+  };
+
+  const restartWeatherAnimations = (weatherCode: number, isNight: boolean) => {
+    // Find all weather effect elements
+    const effects = document.querySelectorAll(
+      "[class*='rain'], [class*='snow'], " +
+      "[class*='cloud'], [class*='lightning'], " +
+      "[class*='particle'], [class*='atmosphere'], " +
+      "[class*='weather-fx'], [class*='fog']"
+    );
+
+    effects.forEach(el => {
+      // Reset animation by removing and re-adding
+      (el as HTMLElement).style.animationPlayState = "paused";
+      void (el as HTMLElement).offsetWidth; // force reflow
+      (el as HTMLElement).style.animationPlayState = "running";
+      (el as HTMLElement).style.willChange = "transform, opacity";
+    });
+
+    console.log("Weather animations restarted for:");
+  };
+
+  const silentRefreshCity = async (city: Location, index: number) => {
+    if (!navigator.onLine) return;
+    try {
+      const fresh = await fetchWeather(city.latitude, city.longitude, city.timezone, city.name, city.country);
+      const cityKey = getCityKey(city);
+      saveWeatherData(cityKey, fresh);
+      setState(prev => {
+        if (prev.activeLocationIndex === index && prev.locations[index]?.name === city.name) {
+          return {
+            ...prev,
+            weatherData: { ...prev.weatherData, [index]: fresh }
+          };
+        }
+        return prev;
+      });
+    } catch (e) {
+      console.warn("Silent refresh failed:", e);
+    }
+  };
+
+  const switchToCity = async (newIndex: number) => {
+    if (newIndex === state.activeLocationIndex) return;
+
+    // Direct performance gain: pause heavy animations during visual transition slide
+    killAnimations();
+
+    const city = state.locations[newIndex];
+    if (!city) return;
+
+    // Load Cache
+    const cityKey = getCityKey(city);
+    const cached = getCachedWeatherData(cityKey);
+
+    if (cached?.data) {
+      // Sync React state directly and instantly - No manual DOM hacks or timers!
+      setState(prev => ({
+        ...prev,
+        activeLocationIndex: newIndex,
+        weatherData: { ...prev.weatherData, [newIndex]: cached.data },
+        loading: false,
+        error: null
+      }));
+
+      // Apply weather gradient smoothly based on Cache data
+      const isNight = isNightHour(
+        Date.now(),
+        cached.data.daily?.sunrise?.[0],
+        cached.data.daily?.sunset?.[0]
+      );
+      applyWeatherGradient(
+        cached.data.current?.weatherCode || 0,
+        isNight
+      );
+    } else {
+      // No cache - show modern skeletons
+      setState(prev => ({
+        ...prev,
+        activeLocationIndex: newIndex,
+        loading: true
+      }));
+
+      try {
+        const fresh = await fetchWeather(city.latitude, city.longitude, city.timezone, city.name, city.country);
+        saveWeatherData(cityKey, fresh);
+
+        setState(prev => ({
+          ...prev,
+          weatherData: { ...prev.weatherData, [newIndex]: fresh },
+          loading: false,
+          error: null
+        }));
+
+        const isNight = isNightHour(
+          Date.now(),
+          fresh.daily?.sunrise?.[0],
+          fresh.daily?.sunset?.[0]
+        );
+        applyWeatherGradient(
+          fresh.current?.weatherCode || 0,
+          isNight
+        );
+      } catch (err) {
+        console.warn("switchToCity fetch failed:", err);
+        setState(prev => ({
+          ...prev,
+          loading: false,
+          error: "Failed to load weather data"
+        }));
+      }
+    }
+
+    // ── BACKGROUND UPDATES ──────
+    // Keep AQI loading asynchronous so visual transitions stay extremely responsive
+    setTimeout(() => {
+      refreshAQIForIndex(newIndex);
+    }, 120);
+
+    // Run silent refresh in background if cache is old (>10 mins)
+    const cacheAge = cached?.ts 
+      ? Date.now() - cached.ts 
+      : Infinity;
+
+    if (cacheAge > 10 * 60 * 1000) {
+      setTimeout(() => {
+        silentRefreshCity(city, newIndex).catch(err => {
+          console.warn("silentRefreshCity failed:", err);
+        });
+      }, 500);
+    }
+  };
+
   const addLocation = (location: Location) => {
     // 1. Check if location already exists upfront to avoid async state issues
     const existsIndex = state.locations.findIndex(l => {
@@ -1328,22 +1533,24 @@ export default function App() {
     });
   };
 
-  const loadWeatherBatch = async (locations: Location[], startIndex = 0) => {
+  const loadWeatherBatch = async (locations: Location[], startIndex = 0, forceRefresh = false) => {
     if (locations.length === 0) return;
 
-    // Load from cache first for immediate display (Persistent Offline Mode)
-    const initialCachedData: Record<number, WeatherData> = {};
-    locations.forEach((loc, idx) => {
-      const cached = getCachedWeatherData(getCityKey(loc));
-      if (cached) initialCachedData[startIndex + idx] = cached.data;
-    });
+    // Load from cache first for immediate display unless forcing fresh refresh (Offline Support)
+    if (!forceRefresh || !navigator.onLine) {
+      const initialCachedData: Record<number, WeatherData> = {};
+      locations.forEach((loc, idx) => {
+        const cached = getCachedWeatherData(getCityKey(loc));
+        if (cached) initialCachedData[startIndex + idx] = cached.data;
+      });
 
-    if (Object.keys(initialCachedData).length > 0) {
-      setState(prev => ({
-        ...prev,
-        weatherData: { ...prev.weatherData, ...initialCachedData },
-        loading: false
-      }));
+      if (Object.keys(initialCachedData).length > 0) {
+        setState(prev => ({
+          ...prev,
+          weatherData: { ...prev.weatherData, ...initialCachedData },
+          loading: false
+        }));
+      }
     }
 
     if (!navigator.onLine) return;
@@ -1667,42 +1874,23 @@ export default function App() {
   const handleSwipe = (direction: 'left' | 'right') => {
     Haptic.light(state.settings.hapticEnabled);
     setSlideDirection(direction);
-    disableAllAnimations();
     
-    setState(prev => {
-      const isLeft = direction === 'left';
-      let nextIndex;
-      if (isLeft) {
-        nextIndex = (prev.activeLocationIndex + 1) % prev.locations.length;
-      } else {
-        nextIndex = (prev.activeLocationIndex - 1 + prev.locations.length) % prev.locations.length;
-      }
+    const isLeft = direction === 'left';
+    let nextIndex;
+    if (isLeft) {
+      nextIndex = (state.activeLocationIndex + 1) % state.locations.length;
+    } else {
+      nextIndex = (state.activeLocationIndex - 1 + state.locations.length) % state.locations.length;
+    }
 
-      const newWeatherData = { ...prev.weatherData };
-      if (!newWeatherData[nextIndex]) {
-        const nextCity = prev.locations[nextIndex];
-        if (nextCity) {
-          const cached = getCachedWeatherData(getCityKey(nextCity));
-          if (cached) {
-            newWeatherData[nextIndex] = cached.data;
-          }
-        }
-      }
-
-      return { 
-        ...prev, 
-        activeLocationIndex: nextIndex,
-        weatherData: newWeatherData
-      };
-    });
-    
+    switchToCity(nextIndex);
     window.scrollTo({ top: 0, behavior: 'auto' });
   };
   useEffect(() => {
     const cleanup = initGestures();
 
     const onSwipeLeft = () => {
-      if (state.showSettings || showSearch || showCityManager || state.locations.length <= 1) {
+      if (state.showSettings || showSearch || showCityManager || showRadarMap || state.locations.length <= 1) {
         setIsSwiping(false);
         setIsSwipeCommitted(false);
         return;
@@ -1712,7 +1900,7 @@ export default function App() {
     };
 
     const onSwipeRight = () => {
-      if (state.showSettings || showSearch || showCityManager || state.locations.length <= 1) {
+      if (state.showSettings || showSearch || showCityManager || showRadarMap || state.locations.length <= 1) {
         setIsSwiping(false);
         setIsSwipeCommitted(false);
         return;
@@ -1722,7 +1910,7 @@ export default function App() {
     };
 
     const onSwipeStart = () => {
-      if (state.showSettings || showSearch || showCityManager || state.locations.length <= 1) return;
+      if (state.showSettings || showSearch || showCityManager || showRadarMap || state.locations.length <= 1) return;
       setIsSwiping(true);
       setIsSwipeCommitted(false);
 
@@ -1820,59 +2008,64 @@ export default function App() {
         key={`${activeLocation.id}-${activeLocation.name}`}
         initial={{ opacity: 0, x: slideDirection ? xOffset : 0 }}
         animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: -xOffset }}
+        exit={{ opacity: 0, x: slideDirection ? -xOffset : 0 }}
         onAnimationComplete={() => {
           setIsSwiping(false);
           setIsSwipeCommitted(false);
+          enableAnimations();
         }}
         transition={{ 
           type: "spring",
-          damping: 30,
-          stiffness: 400,
-          mass: 0.5
+          damping: 26,
+          stiffness: 170,
+          mass: 0.6
         }}
         className="city-card flex flex-col gap-4 gpu weather-content"
       >
-        <WeatherHero 
-          weather={activeWeather} 
-          location={activeLocation} 
-          settings={state.settings} 
-          onRefresh={handleRefresh}
-          isRefreshing={isRefreshing}
-        />
-        <HourlyForecast 
-          weather={activeWeather} 
-          settings={state.settings} 
-        />
-        <DailyForecast 
-          weather={activeWeather} 
-          settings={state.settings} 
-        />
-        <WeatherDetails 
-          weather={activeWeather} 
-          settings={state.settings} 
-        />
-        <SunPath 
-          weather={activeWeather}
-          settings={state.settings}
-        />
+        <div id="city-content" className="city-content flex flex-col gap-4">
+          <WeatherHero 
+            weather={activeWeather} 
+            location={activeLocation} 
+            settings={state.settings} 
+            onRefresh={handleRefresh}
+            isRefreshing={isRefreshing}
+          />
+          <HourlyForecast 
+            weather={activeWeather} 
+            settings={state.settings} 
+          />
+          <DailyForecast 
+            weather={activeWeather} 
+            settings={state.settings} 
+          />
+          <WeatherDetails 
+            weather={activeWeather} 
+            settings={state.settings} 
+          />
 
-        <div className="flex flex-col items-center gap-6 text-center mt-16 mb-24 opacity-30 select-none">
-          <div className="h-[1px] w-12 bg-app-text/10" />
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-center gap-2">
-              <div className="p-1 rounded-md bg-app-text/5 border border-app-border/50">
-                <Icons.ShieldCheck className="w-3 h-3" />
+
+          <SunPath 
+            weather={activeWeather}
+            settings={state.settings}
+          />
+
+          <div className="flex flex-col items-center gap-6 text-center mt-16 mb-24 opacity-30 select-none">
+            <div className="h-[1px] w-12 bg-app-text/10" />
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-center gap-2">
+                <div className="p-1 rounded-md bg-app-text/5 border border-app-border/50">
+                  <Icons.ShieldCheck className="w-3 h-3" />
+                </div>
+                <p className="text-[10px] text-app-text font-black uppercase tracking-[0.25em]">
+                  Verified Source
+                </p>
               </div>
-              <p className="text-[10px] text-app-text font-black uppercase tracking-[0.25em]">
-                Verified Source
-              </p>
             </div>
           </div>
         </div>
       </motion.div>
     );
-  }, [activeWeather, activeLocation, state.settings, isRefreshing]);
+  }, [activeWeather, activeLocation, state.settings, isRefreshing, slideDirection]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -1909,34 +2102,6 @@ export default function App() {
     <div 
       className="min-h-screen bg-black text-app-text font-sans selection:bg-app-text/20 transition-colors duration-500 relative"
     >
-      {state.settings.gradientAnimation !== 'off' && (
-        <AtmosphereFX 
-          key={`${activeLocation?.name ?? 'empty'}-${activeWeather ? getCurrentWeatherState(activeWeather).weatherCode : 0}-${activeWeather?.fetchedAt ?? 0}`}
-          weatherCode={activeWeather ? getCurrentWeatherState(activeWeather).weatherCode : 0}
-          isDay={activeWeather ? getCurrentWeatherState(activeWeather).isDay : true}
-          moonPhase={getMoonPhaseInfo().phase}
-          locationName={activeLocation?.name ?? ''}
-          mainIconName={activeWeather ? getCurrentWeatherState(activeWeather).icon : undefined}
-          gradientAnimation={state.settings.gradientAnimation ?? 'on'}
-          timezone={activeLocation?.timezone || 'UTC'}
-          fetchedAt={activeWeather?.fetchedAt}
-          localHour={(() => {
-            try {
-              const timezone = activeLocation?.timezone || 'UTC';
-              const dateStr = new Intl.DateTimeFormat('en-US', {
-                timeZone: timezone === 'auto' ? undefined : timezone,
-                hour: 'numeric',
-                hour12: false
-              }).format(new Date());
-              const parsedHour = parseInt(dateStr.replace(/[^0-9]/g, ''), 10);
-              return parsedHour % 24;
-            } catch {
-              return new Date().getHours() % 24;
-            }
-          })()}
-        />
-      )}
-
       <div id="ui-overlay" className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] z-[100] pointer-events-none pt-[env(safe-area-inset-top)]">
         <style>{`
           @keyframes spin {
@@ -2004,15 +2169,37 @@ export default function App() {
                 className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text active:scale-95 transition-all shadow-xl"
                 initial={false}
                 animate={{
-                  opacity: state.showSettings || showCityManager || isSwiping || isSwipeCommitted ? 0 : 1,
-                  pointerEvents: state.showSettings || showCityManager || isSwiping || isSwipeCommitted ? 'none' : 'auto',
-                  scale: state.showSettings || showCityManager ? 0.8 : 1,
+                  opacity: state.showSettings || showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 0 : 1,
+                  pointerEvents: state.showSettings || showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 'none' : 'auto',
+                  scale: state.showSettings || showCityManager || showRadarMap ? 0.8 : 1,
                 }}
                 transition={{ 
                   duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 
                 }}
               >
                 <Icons.LayoutGrid className="w-5 h-5 text-app-text-dim" strokeWidth={1.5} />
+              </motion.button>
+            </motion.div>
+
+            {/* Live Radar Map Button - Top Right (Shifted Left) */}
+            <motion.div className="absolute right-20 top-8 pointer-events-auto">
+              <motion.button 
+                id="radar-map-btn"
+                onClick={() => {
+                  Haptic.medium(state.settings.hapticEnabled);
+                  setShowRadarMap(true);
+                  pushPanel(() => setShowRadarMap(false), 'radarmap');
+                }}
+                className="w-12 h-12 bg-app-text/5 border border-app-border rounded-full flex items-center justify-center text-app-text shadow-xl active:scale-95 transition-all"
+                initial={false}
+                animate={{
+                  opacity: state.showSettings || showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 0 : 1,
+                  pointerEvents: state.showSettings || showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 'none' : 'auto',
+                  scale: state.showSettings || showCityManager || showRadarMap ? 0.8 : 1,
+                }}
+                transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 }}
+              >
+                <Icons.Map className="w-5 h-5 text-app-text-dim hover:text-app-text transition-colors" />
               </motion.button>
             </motion.div>
 
@@ -2025,7 +2212,9 @@ export default function App() {
                   state.showSettings ? 'h-12 px-1' : 'w-12 h-12'
                 }`}
                 animate={{
-                  opacity: isSwiping || isSwipeCommitted ? 0 : 1,
+                  opacity: showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 0 : 1,
+                  pointerEvents: showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 'none' : 'auto',
+                  scale: showCityManager || showRadarMap ? 0.8 : 1,
                 }}
                 transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 }}
               >
@@ -2075,23 +2264,20 @@ export default function App() {
 
             {/* City Name & Pagination - Center */}
             <div className="absolute left-1/2 -translate-x-1/2 top-8 flex flex-col items-center pointer-events-none mt-2">
-              <AnimatePresence mode="wait">
-                {state.locations.length > 0 && (
-                  <motion.div 
-                    key={activeLocation?.id || activeLocation?.name || 'loading'}
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ 
-                      opacity: state.showSettings || showCityManager || isSwiping || isSwipeCommitted ? 0 : 1,
-                      y: 0 
-                    }}
-                    exit={{ opacity: 0, y: 10 }}
-                    transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 }}
-                    className="flex flex-col items-center justify-center"
-                  >
-                    <div className="flex items-center gap-1.5 justify-center relative">
-                      <span id="city-name" className="text-[17px] font-semibold text-app-text">{activeLocation?.name || 'Loading...'}</span>
-                      <span id="location-pin-icon" style={{ display: activeLocation?.isCurrentLocation ? "inline" : "none" }}>📍</span>
-                    </div>
+              {state.locations.length > 0 && (
+                <motion.div 
+                  key="city-header-persistent"
+                  initial={{ opacity: 0 }}
+                  animate={{ 
+                    opacity: state.showSettings || showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 0 : 1,
+                  }}
+                  transition={{ duration: 0.15 }}
+                  className="flex flex-col items-center justify-center"
+                >
+                  <div className="flex items-center gap-1.5 justify-center relative">
+                    <span id="city-name" className="text-[17px] font-semibold text-app-text">{activeLocation?.name || 'Loading...'}</span>
+                    <span id="location-pin-icon" style={{ display: activeLocation?.isCurrentLocation ? "inline" : "none" }}>📍</span>
+                  </div>
                     
                     {isOffline && (
                       <motion.div 
@@ -2104,6 +2290,17 @@ export default function App() {
                       </motion.div>
                     )}
 
+                    {isRefreshing && !isOffline && (
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="flex items-center gap-1 px-2.5 py-0.5 rounded-full mt-1 bg-white/10 border border-white/20 backdrop-blur-md"
+                      >
+                        <Icons.RotateCcw className="w-2.5 h-2.5 text-white animate-spin" strokeWidth={2.5} />
+                        <span className="text-[9px] font-bold text-white uppercase tracking-widest">Refreshing...</span>
+                      </motion.div>
+                    )}
+
                     <div id="city-dots" className="flex gap-1.5 mt-1.5">
                       {state.locations.map((_, i) => (
                         <button 
@@ -2111,24 +2308,7 @@ export default function App() {
                           onClick={() => {
                             if (state.activeLocationIndex !== i) {
                               Haptic.light(state.settings.hapticEnabled);
-                              disableAllAnimations();
-                              setState(prev => {
-                                const newWeatherData = { ...prev.weatherData };
-                                if (!newWeatherData[i]) {
-                                  const city = prev.locations[i];
-                                  if (city) {
-                                    const cached = getCachedWeatherData(getCityKey(city));
-                                    if (cached) {
-                                      newWeatherData[i] = cached.data;
-                                    }
-                                  }
-                                }
-                                return {
-                                  ...prev,
-                                  activeLocationIndex: i,
-                                  weatherData: newWeatherData
-                                };
-                              });
+                              switchToCity(i);
                             }
                           }}
                           className={cn(
@@ -2142,7 +2322,6 @@ export default function App() {
                     </div>
                   </motion.div>
                 )}
-              </AnimatePresence>
             </div>
           </motion.div>
         )}
@@ -2173,24 +2352,7 @@ export default function App() {
               panelStackRef={panelStackRef}
               onSelect={(index) => {
                 Haptic.light(state.settings.hapticEnabled);
-                disableAllAnimations();
-                setState(prev => {
-                  const newWeatherData = { ...prev.weatherData };
-                  if (!newWeatherData[index]) {
-                    const city = prev.locations[index];
-                    if (city) {
-                      const cached = getCachedWeatherData(getCityKey(city));
-                      if (cached) {
-                        newWeatherData[index] = cached.data;
-                      }
-                    }
-                  }
-                  return {
-                    ...prev,
-                    activeLocationIndex: index,
-                    weatherData: newWeatherData
-                  };
-                });
+                switchToCity(index);
                 handleBack();
               }}
               onAdd={() => {
@@ -2226,6 +2388,18 @@ export default function App() {
                 handleBack();
               }}
             />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showRadarMap && (
+          <WeatherRadarMap 
+            activeLocation={activeLocation!}
+            hapticEnabled={state.settings.hapticEnabled}
+            onClose={() => {
+              handleBack();
+            }}
+          />
         )}
       </AnimatePresence>
 
@@ -2342,7 +2516,7 @@ export default function App() {
         )}
 
         <AnimatePresence mode="wait">
-          {state.loading && !activeWeather ? (
+          {state.loading ? (
             <motion.div
               key="loading"
               initial={{ opacity: 0 }}

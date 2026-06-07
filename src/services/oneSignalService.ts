@@ -262,3 +262,59 @@ export async function syncUserSettingsToFirebase(
     return false;
   }
 }
+
+/**
+ * Fetch settings and location definitions from Firebase Firestore `/users`
+ */
+export async function fetchUserSettingsFromFirebase(
+  playerId: string
+): Promise<Partial<Settings> | null> {
+  const projectId = firebaseConfig.projectId;
+  const apiKey = firebaseConfig.apiKey;
+  const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/users/${playerId}?key=${apiKey}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.log('[FirebaseFetch] User document not found. This is normal for new users.');
+        return null;
+      }
+      const errText = await response.text();
+      console.warn('[FirebaseFetch] Read failed:', errText);
+      return null;
+    }
+
+    const data = await response.json();
+    if (!data.fields) return null;
+
+    const f = data.fields;
+    
+    const getBool = (field: any) => field?.booleanValue ?? null;
+    const getInt = (field: any) => field?.integerValue ? parseInt(field.integerValue, 10) : null;
+
+    const fetchedSettings: Partial<Settings> = {};
+
+    if (getBool(f.alertRainEnabled) !== null) fetchedSettings.alertRain = getBool(f.alertRainEnabled);
+    if (getBool(f.alertSnowEnabled) !== null) fetchedSettings.alertDaily = getBool(f.alertSnowEnabled);
+    if (getBool(f.alertThunderstormEnabled) !== null) fetchedSettings.stormThreshold = getBool(f.alertThunderstormEnabled);
+    if (getBool(f.alertSevereEnabled) !== null) fetchedSettings.alertSevere = getBool(f.alertSevereEnabled);
+    if (getBool(f.alertMorningSummaryEnabled) !== null) fetchedSettings.alertMorningSummary = getBool(f.alertMorningSummaryEnabled);
+    if (getBool(f.alertNightSummaryEnabled) !== null) fetchedSettings.alertNightSummary = getBool(f.alertNightSummaryEnabled);
+    if (getInt(f.rainThreshold) !== null) fetchedSettings.rainThreshold = getInt(f.rainThreshold);
+    if (getInt(f.snowThreshold) !== null) fetchedSettings.snowThreshold = getInt(f.snowThreshold);
+
+    console.log('[FirebaseFetch] Mapped settings from firestore:', fetchedSettings);
+    return fetchedSettings;
+  } catch (error) {
+    console.error('[FirebaseFetch] Exception during Firestore fetch:', error);
+    return null;
+  }
+}

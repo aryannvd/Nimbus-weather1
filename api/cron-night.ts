@@ -1,15 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
 import firebaseConfig from '../firebase-applet-config.json';
-
-// Initialize the modern Gemini SDK
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
 
 const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID || "d78d4db3-2898-4f81-8bba-c8b5b719ee1b";
 
@@ -98,27 +87,13 @@ export default async function handler(request: any, response: any) {
         else if (weatherCode >= 85 && weatherCode <= 86) conditionDesc = 'snowy skies';
         else if (weatherCode >= 95) conditionDesc = 'thunderstorms';
 
-        // 3. Prompt Gemini AI for planning advice
-        const prompt = `You are a thoughtful evening weather planner.
-Generate a short 2-sentence push notification summarizing tomorrow's weather forecast so the user can easily plan their outfit or travel.
-Tomorrow's Details:
-City: ${cityName}
-Max Temp: ${maxTemp}°C
-Min Temp: ${minTemp}°C
-Precipitation expected: ${precipSum}mm
-Sky conditions: ${conditionDesc}
-
-Rules:
-- Give a very practical, gentle planning tip (e.g., grab an umbrella, layer up).
-- Keep length under 150 characters to prevent scroll cuts on notifications.
-- Respond with only the notification body itself.`;
-
-        const geminiRes = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: prompt,
-        });
-
-        const notifyText = geminiRes.text?.trim() || `Tomorrow in ${cityName}: expected high of ${maxTemp}°C with ${conditionDesc}. Plan entsprechend!`;
+        // 3. Generate a deterministic template-based night weather summary for tomorrow
+        let notifyText = `Tomorrow's outlook for ${cityName} indicates ${conditionDesc} with temperatures ranging from ${minTemp}°C up to ${maxTemp}°C.`;
+        if (precipSum > 0) {
+          notifyText += ` Grab your rain gear as ${precipSum}mm of precipitation is expected.`;
+        } else {
+          notifyText += ` It's looking like a great day to plan your outfits and activities!`;
+        }
 
         // 4. Send OneSignal push
         const onesignalUrl = 'https://onesignal.com/api/v1/notifications';

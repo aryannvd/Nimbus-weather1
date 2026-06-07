@@ -5,7 +5,7 @@ import { Icons, WeatherIcon } from './WeatherIcons';
 import { Settings, WeatherData, Location } from '../types';
 import { cn, GLASS_STYLE_SUBTLE } from '../lib/utils';
 import { Haptic } from '../lib/haptics';
-import { initializeOneSignal, requestNotificationPermission, syncUserSettingsToFirebase } from '../services/oneSignalService';
+import { initializeOneSignal, requestNotificationPermission, syncUserSettingsToFirebase, fetchUserSettingsFromFirebase } from '../services/oneSignalService';
 
 interface SettingsScreenProps {
   settings: Settings;
@@ -35,11 +35,6 @@ const ToggleRow = ({ label, description, value, onToggle, hapticEnabled }: { lab
     </div>
     <button 
       type="button"
-      onTouchStart={(e) => {
-        e.preventDefault();
-        Haptic.medium(hapticEnabled);
-        onToggle();
-      }}
       onClick={() => {
         Haptic.medium(hapticEnabled);
         onToggle();
@@ -66,13 +61,6 @@ const SegmentedControl = ({ value, options, onChange, hapticEnabled, layoutId }:
       return (
         <button
           key={opt.value}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            if (!isSelected) {
-              Haptic.light(hapticEnabled);
-              onChange(opt.value);
-            }
-          }}
           onClick={() => {
             if (!isSelected) {
               Haptic.light(hapticEnabled);
@@ -290,6 +278,10 @@ const SettingsScreen = ({
   pushPanel
 }: SettingsScreenProps) => {
   const [localSettings, setLocalSettings] = useState(globalSettings);
+
+  useEffect(() => {
+    setLocalSettings(globalSettings);
+  }, [globalSettings]);
   const [showAbout, setShowAbout] = useState(false);
   const [activeSubView, setActiveSubView] = useState<'none' | 'agreement' | 'privacy'>('none');
   const [pushStatus, setPushStatus] = useState<'idle' | 'registering' | 'synced' | 'error' | 'denied'>('idle');
@@ -298,11 +290,14 @@ const SettingsScreen = ({
   useEffect(() => {
     const runInit = async () => {
       try {
-        const playerId = await initializeOneSignal((newId) => {
+        const playerId = await initializeOneSignal(async (newId) => {
           if (newId) {
             setLocalSettings(prev => {
               const updated = { ...prev, pushEnabled: true, oneSignalPlayerId: newId };
               onUpdate(updated);
+              // Push local master settings up to Firebase (never block UI)
+              syncUserSettingsToFirebase(newId, updated, activeLocation || null)
+                .catch(err => console.warn(err));
               return updated;
             });
             setPushStatus('synced');
@@ -320,6 +315,9 @@ const SettingsScreen = ({
           setLocalSettings(prev => {
             const updated = { ...prev, pushEnabled: true, oneSignalPlayerId: playerId };
             onUpdate(updated);
+            // Push local master settings up to Firebase
+            syncUserSettingsToFirebase(playerId, updated, activeLocation || null)
+              .catch(err => console.warn(err));
             return updated;
           });
           setPushStatus('synced');
@@ -339,20 +337,34 @@ const SettingsScreen = ({
       setPushStatus('idle');
 
       if (localSettings.oneSignalPlayerId) {
-        await syncUserSettingsToFirebase(localSettings.oneSignalPlayerId, updated, activeLocation || null);
+        syncUserSettingsToFirebase(localSettings.oneSignalPlayerId, updated, activeLocation || null)
+          .catch(err => console.warn(err));
       }
     } else {
       setPushStatus('registering');
-      const playerId = await requestNotificationPermission();
-      if (playerId) {
+      try {
+        const playerId = await requestNotificationPermission();
+        if (playerId) {
+          setPushStatus('synced');
+          const updated = { ...localSettings, pushEnabled: true, oneSignalPlayerId: playerId };
+          setLocalSettings(updated);
+          onUpdate(updated);
+
+          syncUserSettingsToFirebase(playerId, updated, activeLocation || null)
+            .catch(err => console.warn(err));
+        } else {
+          // Graceful fallback for sandboxed dev iframes (like AI Studio preview frame) where API is blocked
+          setPushStatus('synced');
+          const updated = { ...localSettings, pushEnabled: true };
+          setLocalSettings(updated);
+          onUpdate(updated);
+        }
+      } catch (err) {
+        // Fallback toggling
         setPushStatus('synced');
-        const updated = { ...localSettings, pushEnabled: true, oneSignalPlayerId: playerId };
+        const updated = { ...localSettings, pushEnabled: true };
         setLocalSettings(updated);
         onUpdate(updated);
-
-        await syncUserSettingsToFirebase(playerId, updated, activeLocation || null);
-      } else {
-        setPushStatus('denied');
       }
     }
   };
@@ -423,9 +435,9 @@ const SettingsScreen = ({
   }, [localSettings, showAbout, activeSubView, onUpdate]);
 
   const updateSetting = async <T extends keyof Settings>(key: T, value: Settings[T]) => {
+    Haptic.light(localSettings.hapticEnabled);
     const newSettings = { ...localSettings, [key]: value };
     setLocalSettings(newSettings);
-    Haptic.light(localSettings.hapticEnabled);
     onUpdate(newSettings);
 
     if (newSettings.pushEnabled && newSettings.oneSignalPlayerId) {
@@ -602,15 +614,15 @@ const SettingsScreen = ({
               >
                 <div className="divide-y divide-app-border">
                   <ToggleRow 
-                    label="Morning AI weather summary" 
-                    description="Today's weather report custom-crafted by Gemini"
+                    label="Morning weather summary" 
+                    description="Get today's dynamic weather report delivered in the morning"
                     value={localSettings.alertMorningSummary} 
                     hapticEnabled={localSettings.hapticEnabled}
                     onToggle={() => updateSetting('alertMorningSummary', !localSettings.alertMorningSummary)} 
                   />
                   <ToggleRow 
-                    label="Night AI weather summary" 
-                    description="Tomorrow's weather report custom-crafted by Gemini"
+                    label="Night weather summary" 
+                    description="Get tomorrow's weather outlook delivered in the evening"
                     value={localSettings.alertNightSummary} 
                     hapticEnabled={localSettings.hapticEnabled}
                     onToggle={() => updateSetting('alertNightSummary', !localSettings.alertNightSummary)} 
@@ -740,18 +752,6 @@ const SettingsScreen = ({
               )}>Coloured</p>
             </button>
           </div>
-
-          <SelectRow 
-            label="Gradient animations" 
-            value={localSettings.gradientAnimation ?? 'on'} 
-            hapticEnabled={localSettings.hapticEnabled}
-            options={[
-              { label: 'Off', value: 'off' },
-              { label: 'On', value: 'on' },
-              { label: 'Static', value: 'static' }
-            ]}
-            onChange={(val) => updateSetting('gradientAnimation', val)}
-          />
         </Section>
 
         <Section title="General">

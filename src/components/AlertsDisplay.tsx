@@ -45,21 +45,17 @@ export default function AlertsDisplay({ alerts, onDismiss }: AlertsDisplayProps)
           return (
             <motion.div
               key={alert.id}
-              layout
               initial={{ opacity: 0, y: -20, scale: 0.9 }}
               animate={isExpanded ? {
                 opacity: 1,
                 y: 0,
                 scale: 1,
                 zIndex: alerts.length - index,
-                rotate: 0,
-                filter: 'blur(0px)',
               } : {
-                opacity: stackIndex > 2 ? 0 : 1,
-                y: stackIndex * 12, // More pronounced sliver
-                scale: 1 - (stackIndex * 0.05),
+                opacity: stackIndex > 2 ? 0 : 1 - (stackIndex * 0.15),
+                y: stackIndex * 6,
+                scale: 1 - (stackIndex * 0.03),
                 zIndex: alerts.length - stackIndex,
-                filter: stackIndex > 0 ? `blur(${stackIndex * 1}px)` : 'blur(0px)',
                 position: isStacked && stackIndex > 0 ? 'absolute' : 'relative',
                 top: 0,
                 left: 0,
@@ -68,10 +64,9 @@ export default function AlertsDisplay({ alerts, onDismiss }: AlertsDisplayProps)
               style={{ transformOrigin: 'top center' }}
               exit={{ opacity: 0, scale: 0.9, y: 10 }}
               transition={{
-                type: "spring",
-                stiffness: 300,
-                damping: 30,
-                mass: 1
+                type: "tween",
+                ease: "easeOut",
+                duration: 0.2
               }}
               className={cn(
                 "p-4 rounded-[24px] flex gap-4 items-start relative overflow-hidden group transition-all",

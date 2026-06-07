@@ -1,15 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
 import firebaseConfig from '../firebase-applet-config.json';
-
-// Initialize the modern Gemini SDK
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
 
 const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID || "d78d4db3-2898-4f81-8bba-c8b5b719ee1b";
 
@@ -99,27 +88,13 @@ export default async function handler(request: any, response: any) {
         else if (weatherCode >= 85 && weatherCode <= 86) conditionDesc = 'snow showers';
         else if (weatherCode >= 95) conditionDesc = 'risk of thunderstorms';
 
-        // 3. Prompt Gemini AI with raw daily summary parameters
-        const prompt = `You are a friendly morning weather anchor for an ultra-minimal dashboard application.
-Generate a short, upbeat 2-sentence push notification summarizing the weather for today.
-Details:
-City: ${cityName}
-Max Temperature: ${maxTemp}°C
-Min Temperature: ${minTemp}°C
-Precipitation expected: ${precipSum}mm
-Overall sky state: ${conditionDesc}
-
-Rules:
-- Be cheerful and engaging.
-- Keep the overall length under 150 characters so it fits on smart screens.
-- Do not repeat placeholders. Respond with the raw notification string only.`;
-
-        const geminiRes = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: prompt,
-        });
-
-        const notifyText = geminiRes.text?.trim() || `Good morning! Expect a high of ${maxTemp}°C in ${cityName} today with ${conditionDesc}.`;
+        // 3. Generate a deterministic template-based morning weather summary for today
+        let notifyText = `Good morning! Expected high of ${maxTemp}°C and low of ${minTemp}°C in ${cityName} today with ${conditionDesc}.`;
+        if (precipSum > 0) {
+          notifyText += ` Keep an umbrella handy, as ${precipSum}mm of precipitation is expected.`;
+        } else {
+          notifyText += ` Enjoy your beautiful day!`;
+        }
 
         // 4. Send OneSignal Push Notification targeting player ID
         const onesignalUrl = 'https://onesignal.com/api/v1/notifications';

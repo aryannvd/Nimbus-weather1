@@ -2,19 +2,20 @@
 @import "tailwindcss";
 
 /* ============================================
-   SCROLLBAR — AMOLED INVISIBLE
+   SCROLLBAR — COMPLETELY HIDDEN
    ============================================ */
 
-/* Firefox */
+/* Hide scrollbars for Firefox */
 * {
-  scrollbar-width: thin !important;
-  scrollbar-color: #000000 transparent !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 
-/* Chrome, Brave, Safari, WebView — Vertical */
+/* Hide scrollbars for Chrome, Safari, Opera, Edge, Brave, WebView */
 *::-webkit-scrollbar {
-  width: 1px !important;
-  height: 1px !important;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
   background: transparent !important;
 }
 
@@ -25,60 +26,13 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #000000 !important;
-  border-radius: 0 !important;
+  background: transparent !important;
   border: none !important;
   box-shadow: none !important;
-  min-height: 0 !important;
-  min-width: 0 !important;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: #000000 !important;
 }
 
 *::-webkit-scrollbar-corner {
   background: transparent !important;
-}
-
-/* Horizontal scrollbar specifically 
-   for hourly forecast */
-.hourly-forecast::-webkit-scrollbar,
-.hourly-container::-webkit-scrollbar,
-.hourly-scroll::-webkit-scrollbar,
-[class*="hourly"]::-webkit-scrollbar {
-  height: 1px !important;
-  width: 0 !important;
-  background: transparent !important;
-}
-
-.hourly-forecast::-webkit-scrollbar-thumb,
-.hourly-container::-webkit-scrollbar-thumb,
-.hourly-scroll::-webkit-scrollbar-thumb,
-[class*="hourly"]::-webkit-scrollbar-thumb {
-  background: #000000 !important;
-  height: 1px !important;
-}
-
-/* Main page vertical scrollbar */
-body::-webkit-scrollbar,
-html::-webkit-scrollbar,
-.city-card::-webkit-scrollbar,
-[class*="container"]::-webkit-scrollbar,
-[class*="page"]::-webkit-scrollbar,
-[class*="panel"]::-webkit-scrollbar {
-  width: 1px !important;
-  background: transparent !important;
-}
-
-body::-webkit-scrollbar-thumb,
-html::-webkit-scrollbar-thumb,
-.city-card::-webkit-scrollbar-thumb,
-[class*="container"]::-webkit-scrollbar-thumb,
-[class*="page"]::-webkit-scrollbar-thumb,
-[class*="panel"]::-webkit-scrollbar-thumb {
-  background: #000000 !important;
-  width: 1px !important;
 }
 
 @theme {
@@ -311,17 +265,42 @@ body, html {
    FAST CITY SWITCHING & TAP DELAY FIXES
    ============================================ */
 
-.no-animations *,
-.no-animations *::before,
-.no-animations *::after {
+/* STEP 1 — ANIMATION KILL SWITCH & STEP 2 — CONTENT FADE ANIMATION */
+/* ONLY pause heavy weather FX and particle layers during switch to ensure zero CPU lag */
+[data-animations="off"] [class*="particle"],
+[data-animations="off"] [class*="atmosphere"],
+[data-animations="off"] [class*="weather-fx"],
+[data-animations="off"] [class*="cloud-shape"],
+[data-animations="off"] [class*="lightning"],
+[data-animations="off"] .snow,
+[data-animations="off"] .rain,
+[data-animations="off"] .stars,
+[data-animations="off"] .star,
+[data-animations="off"] svg[class*="animate"],
+[data-animations="off"] [class*="sunbeam"] {
+  animation-play-state: paused !important;
   animation: none !important;
   transition: none !important;
-  animation-play-state: paused !important;
+  will-change: auto !important;
 }
 
-/* Exception — keep swipe slide animation only */
-.no-animations #swipe-layer {
-  transition: transform 0.25s ease !important;
+/* ONLY content fade is allowed during switch */
+[data-animations="off"] .city-content {
+  transition: opacity 0.2s ease !important;
+}
+
+/* STEP 2 — CONTENT FADE ANIMATION */
+.city-content {
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.city-content.fading {
+  opacity: 0;
+}
+
+.city-content.fading-in {
+  opacity: 1;
 }
 
 /* Global touch delay suppression */

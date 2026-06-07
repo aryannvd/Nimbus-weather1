@@ -60,8 +60,7 @@ export const fetchAllWeatherData = async (lat: number, lon: number): Promise<any
     `&current=temperature_2m,relative_humidity_2m,` +
     `apparent_temperature,weather_code,` +
     `wind_speed_10m,wind_direction_10m,` +
-    `precipitation_probability,visibility,` +
-    `uv_index,surface_pressure,precipitation` +
+    `surface_pressure,precipitation` +
     `&hourly=temperature_2m,weather_code,` +
     `precipitation_probability,precipitation,` +
     `wind_speed_10m,visibility,uv_index,` +
@@ -72,7 +71,7 @@ export const fetchAllWeatherData = async (lat: number, lon: number): Promise<any
     `wind_speed_10m_max,uv_index_max,` +
     `precipitation_sum` +
     `&timezone=auto` +
-    `&wind_speed_unit=kmh` +
+    `&wind_speed_unit=ms` +
     `&forecast_days=8`;
 
   const res = await safeFetch(url);
@@ -101,6 +100,24 @@ export const parseCurrentWeather = (res: any): any => {
   }
 
   const c = res.current;
+  const h = res.hourly;
+  let idx = 0;
+  if (h?.time) {
+    const nowMs = Date.now();
+    let minDiff = Infinity;
+    for (let i = 0; i < h.time.length; i++) {
+      const t = new Date(h.time[i]).getTime();
+      const diff = Math.abs(t - nowMs);
+      if (diff < minDiff) {
+        minDiff = diff;
+        idx = i;
+      }
+    }
+  }
+
+  const precipProb = h?.precipitation_probability?.[idx] ?? 0;
+  const visibility = h?.visibility?.[idx] !== undefined ? (h.visibility[idx] / 1000).toFixed(1) : "10.0";
+  const uvIndex = h?.uv_index?.[idx] ?? 0;
 
   const data = {
     temp:        Math.round(c.temperature_2m),
@@ -109,9 +126,9 @@ export const parseCurrentWeather = (res: any): any => {
     weatherCode: c.weather_code,
     windSpeed:   Math.round(c.wind_speed_10m),
     windDir:     c.wind_direction_10m,
-    precipProb:  c.precipitation_probability ?? 0,
-    visibility:  (c.visibility / 1000).toFixed(1),
-    uvIndex:     c.uv_index ?? 0,
+    precipProb:  precipProb,
+    visibility:  visibility,
+    uvIndex:     uvIndex,
     pressure:    Math.round(c.surface_pressure),
     timezone:    res.timezone,
   };
@@ -370,6 +387,38 @@ export async function fetchWeatherBulk(locations: Location[]): Promise<Record<nu
   return results;
 }
 
+/**
+ * Retrieve cached AQI data for a given city from localStorage.
+ * If the data is present and valid, returns it immediately, allowing
+ * instant visual population prior to finishing any asynchronous fetch requests.
+ */
+export function getAQIFromCacheOrLive(cityKey: string): any {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") {
+    return null;
+  }
+  try {
+    const cacheRaw = localStorage.getItem('app_weather_cache');
+    if (cacheRaw) {
+      const cache = JSON.parse(cacheRaw);
+      const cached = cache[cityKey];
+      if (cached?.data?.airQuality) {
+        const aq = cached.data.airQuality;
+        // Check if there is valid AQI data, avoiding default 15 placeholder
+        if (aq && typeof aq.usAqi === 'number' && aq.usAqi !== 15) {
+          return aq;
+        }
+        // If it was exactly 15, only return if it has actual PM2.5 details or is marked fully available
+        if (aq && aq.usAqi === 15 && (aq.pm2_5 !== undefined || !aq.isUnavailable)) {
+          return aq;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Error reading AQI from localStorage cache:", e);
+  }
+  return null;
+}
+
 export async function fetchWeather(lat: number, lon: number, timezone: string, cityName?: string, countryCode?: string): Promise<WeatherData> {
   const res = await fetchAllWeatherData(lat, lon);
   if (!res) {
@@ -378,6 +427,13 @@ export async function fetchWeather(lat: number, lon: number, timezone: string, c
 
   const currentParsed = parseCurrentWeather(res);
   const sunParsed = parseSunriseSunset(res, res.timezone || timezone || 'UTC');
+
+  // Attempt to recover previously cached Air Quality Data for this city if the current fetch holds or fails
+  const cityKey = `${cityName || 'unknown'}_${lat.toFixed(2)}_${lon.toFixed(2)}`
+    .replace(/\s+/g, "_")
+    .toLowerCase();
+  const cachedAqi = getAQIFromCacheOrLive(cityKey);
+
   const aqiData = await getAQIDataWithFallback(lat, lon, cityName || "Unknown", countryCode).catch(() => null);
 
   const resolvedTimezone = res.timezone || timezone || 'UTC';
@@ -423,8 +479,8 @@ export async function fetchWeather(lat: number, lon: number, timezone: string, c
       temperatureMin: res.daily?.temperature_2m_min || [],
       sunrise: res.daily?.sunrise || [],
       sunset: res.daily?.sunset || [],
-      moonrise: res.daily?.time?.map(() => "") || [],
-      moonset: res.daily?.time?.map(() => "") || [],
+      moonrise: res.daily?.moonrise || res.daily?.time?.map(() => "") || [],
+      moonset: res.daily?.moonset || res.daily?.time?.map(() => "") || [],
       uvIndex: res.daily?.uv_index_max || [],
       moonPhase: res.daily?.time ? res.daily.time.map((_: any, idx: number) => {
         return Number((0.15 + (idx * 0.03)) % 1);
@@ -432,18 +488,18 @@ export async function fetchWeather(lat: number, lon: number, timezone: string, c
       precipitationSum: res.daily?.precipitation_sum || [],
     },
     airQuality: {
-      usAqi: aqiData?.aqi ?? 15,
-      description: aqiData?.categoryLabel ?? "Good",
-      color: aqiData?.categoryColor ?? "#34C759",
-      recommendation: aqiData?.categoryRecommendation ?? "Air quality is satisfactory.",
-      standard: aqiData?.standard ?? 'US',
-      standardLabel: aqiData?.standardLabel ?? "AQI · US Standard",
-      pm2_5: aqiData?.pm2_5,
-      pm10: aqiData?.pm10,
-      lastUpdated: aqiData?.time ?? new Date().toISOString(),
-      freshnessLabel: aqiData?.freshnessLabel ?? "Live",
-      isUnavailable: aqiData ? aqiData.isUnavailable : false,
-      isStale: aqiData ? aqiData.isStale : false,
+      usAqi: aqiData?.aqi ?? (cachedAqi?.usAqi ?? 0),
+      description: aqiData?.categoryLabel ?? (cachedAqi?.description ?? "Retrieving..."),
+      color: aqiData?.categoryColor ?? (cachedAqi?.color ?? "#94a3b8"),
+      recommendation: aqiData?.categoryRecommendation ?? (cachedAqi?.recommendation ?? "Reading station..."),
+      standard: aqiData?.standard ?? (cachedAqi?.standard ?? 'US'),
+      standardLabel: aqiData?.standardLabel ?? (cachedAqi?.standardLabel ?? "AQI · US Standard"),
+      pm2_5: aqiData?.pm2_5 ?? cachedAqi?.pm2_5,
+      pm10: aqiData?.pm10 ?? cachedAqi?.pm10,
+      lastUpdated: aqiData?.time ?? (cachedAqi?.lastUpdated ?? new Date().toISOString()),
+      freshnessLabel: aqiData?.freshnessLabel ?? (cachedAqi?.freshnessLabel ?? "Live"),
+      isUnavailable: aqiData ? aqiData.isUnavailable : (cachedAqi ? cachedAqi.isUnavailable : true),
+      isStale: aqiData ? aqiData.isStale : (cachedAqi ? cachedAqi.isStale : false),
     },
     fetchedAt: Date.now(),
     timezone: resolvedTimezone,

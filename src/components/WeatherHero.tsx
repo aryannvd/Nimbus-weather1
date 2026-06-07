@@ -60,32 +60,35 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
         </motion.div>
 
         {weather.fetchedAt && (
-          <div className="flex items-center gap-1.5">
-            <motion.div 
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-2 bg-app-surface py-1.5 px-3 rounded-full border border-app-border"
-            >
-              <Icons.Clock className="w-3 h-3 text-app-text-dim/60" />
-              <span className="text-[10px] uppercase font-bold tracking-widest text-app-text-dim/60">
-                {formatLastUpdated(weather.fetchedAt)}
-              </span>
-            </motion.div>
-
-            {onRefresh && (
+          <div className="flex items-center">
+            {onRefresh ? (
               <motion.button
-                id="refresh-btn"
+                id="refresh-label-btn"
                 onClick={() => {
                   Haptic.medium(settings.hapticEnabled);
                   onRefresh();
                 }}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                whileTap={{ scale: 0.9 }}
-                className="w-7 h-7 bg-app-surface border border-app-border rounded-full flex items-center justify-center text-app-text-dim hover:text-app-text transition-colors shadow-sm"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                whileTap={{ scale: 0.95 }}
+                className="flex items-center gap-2 bg-app-surface py-1.5 px-3 rounded-full border border-app-border hover:border-app-border/80 transition-colors duration-200 select-none text-app-text-dim cursor-pointer"
               >
-                <Icons.RotateCcw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
+                <Icons.Clock className={cn("w-3 h-3 text-app-text-dim/70", isRefreshing && "animate-pulse")} />
+                <span className="text-[10px] uppercase font-bold tracking-widest">
+                  {formatLastUpdated(weather.fetchedAt)}
+                </span>
               </motion.button>
+            ) : (
+              <motion.div 
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex items-center gap-2 bg-app-surface py-1.5 px-3 rounded-full border border-app-border select-none"
+              >
+                <Icons.Clock className="w-3 h-3 text-app-text-dim/60" />
+                <span className="text-[10px] uppercase font-bold tracking-widest text-app-text-dim/60">
+                  {formatLastUpdated(weather.fetchedAt)}
+                </span>
+              </motion.div>
             )}
           </div>
         )}

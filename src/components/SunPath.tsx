@@ -285,10 +285,10 @@ export default function SunPath({ weather, settings }: SunPathProps) {
                   {isNight ? (
                     <WeatherIcon 
                       name="Moon" 
-                      className="w-7 h-7 text-blue-200" 
-                      style="outline"
+                      className="w-7 h-7" 
+                      style="coloured"
                       strokeWidth={1.8}
-                      forceColoured={false}
+                      forceColoured={true}
                     />
                   ) : (
                     <WeatherIcon 

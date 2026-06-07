@@ -99,7 +99,6 @@ export interface Settings {
   alertMorningSummary: boolean;
   alertNightSummary: boolean;
   oneSignalPlayerId?: string;
-  gradientAnimation?: 'off' | 'on' | 'static';
 }
 
 export interface WeatherState {

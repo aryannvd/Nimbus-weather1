@@ -24,7 +24,7 @@ Nimbus weather is a clean, dark-themed weather PWA featuring real-time weather, 
 
 ## 🌐 Live Demo
 
-**[https://nimbus-weather1.vercel.app/](https://nimbus-weather1.vercel.app/)**
+**[https://nimbus-weather1.vercel.app/](https://nimbus-weather1.vercel.app///)**
 
 ---
 

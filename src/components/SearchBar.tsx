@@ -96,7 +96,8 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
         ease: [0.22, 1, 0.36, 1],
         opacity: { duration: 0.3 }
       }}
-      className="fixed inset-0 z-[100] bg-app-bg/90 backdrop-blur-2xl flex flex-col pt-[calc(env(safe-area-inset-top)+24px)]"
+      className="fixed inset-0 z-[99995] bg-app-bg/90 backdrop-blur-2xl flex flex-col pt-[calc(env(safe-area-inset-top)+24px)]"
+      data-no-swipe
     >
       <div className="max-w-[390px] mx-auto w-full px-4 sm:px-6 flex flex-col h-full">
         <header className="flex items-center gap-3 sm:gap-4 mb-8">
@@ -104,7 +105,15 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
             "flex-1 min-w-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 bg-app-text/10 border border-app-border rounded-2xl transition-all duration-300",
             "focus-within:bg-app-text/15 focus-within:ring-1 focus-within:ring-app-text/20"
           )}>
-            <Icons.Search className="w-5 h-5 text-app-text-dim/40 flex-shrink-0" />
+            {isLoading ? (
+              <motion.div 
+                animate={{ rotate: 360 }}
+                transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full flex-shrink-0" 
+              />
+            ) : (
+              <Icons.Search className="w-5 h-5 text-app-text-dim/40 flex-shrink-0" />
+            )}
             <input
               ref={inputRef}
               type="text"
@@ -156,8 +165,24 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
 
           {isLoading ? (
             <div className="py-12 flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-2 border-app-border border-t-app-text rounded-full animate-spin" />
-              <p className="text-[13px] font-medium text-app-text-dim/40 uppercase tracking-widest">Searching</p>
+              <motion.div 
+                animate={{ 
+                  y: [0, -6, 0],
+                  rotate: 360
+                }}
+                transition={{ 
+                  y: { repeat: Infinity, duration: 1.5, ease: "easeInOut" },
+                  rotate: { repeat: Infinity, duration: 1, ease: "linear" }
+                }}
+                className="w-8 h-8 border-2 border-white/10 border-t-white rounded-full" 
+              />
+              <motion.p 
+                animate={{ opacity: [0.4, 0.8, 0.4] }}
+                transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                className="text-[13px] font-medium text-app-text-dim/40 uppercase tracking-widest"
+              >
+                Searching
+              </motion.p>
             </div>
           ) : results.length > 0 ? (
             <div className="flex flex-col gap-2">

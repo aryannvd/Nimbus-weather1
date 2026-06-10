@@ -15,9 +15,10 @@ interface WeatherHeroProps {
   settings: Settings;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  slideDirection?: 'left' | 'right' | null;
 }
 
-export default function WeatherHero({ weather, location, settings, onRefresh, isRefreshing }: WeatherHeroProps) {
+export default function WeatherHero({ weather, location, settings, onRefresh, isRefreshing, slideDirection }: WeatherHeroProps) {
   if (!weather || !weather.current) return null;
   const info = getCurrentWeatherState(weather);
   const moonPhase = getMoonPhaseInfo(weather.daily.moonPhase?.[0] ?? 0);
@@ -45,19 +46,27 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
     return `${Math.floor(hours / 24)}d`;
   };
 
+  const slideTransition = {
+    type: "spring",
+    stiffness: 140,
+    damping: 18,
+    mass: 1
+  };
+
   return (
-    <div className="flex flex-col items-center text-center py-6">
+    <div className="flex flex-col items-center text-center py-6 overflow-visible">
       {/* Status Bar - Moon Phase & Last Updated */}
-      <div className="flex items-center gap-2 mb-4">
-        <motion.div 
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-2 bg-app-surface py-1.5 px-3 rounded-full border border-app-border"
-        >
+      <motion.div 
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={slideTransition}
+        className="flex items-center gap-2 mb-4"
+      >
+        <div className="flex items-center gap-2 bg-app-surface py-1.5 px-3 rounded-full border border-app-border">
           <span className="text-[10px] uppercase font-bold tracking-widest text-app-text-dim whitespace-nowrap">
             {moonPhase.emoji} {moonPhase.label} • {moonPhase.illumination}%
           </span>
-        </motion.div>
+        </div>
 
         {weather.fetchedAt && (
           <div className="flex items-center">
@@ -68,8 +77,6 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
                   Haptic.medium(settings.hapticEnabled);
                   onRefresh();
                 }}
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
                 whileTap={{ scale: 0.95 }}
                 className="flex items-center gap-2 bg-app-surface py-1.5 px-3 rounded-full border border-app-border hover:border-app-border/80 transition-colors duration-200 select-none text-app-text-dim cursor-pointer"
               >
@@ -79,56 +86,61 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
                 </span>
               </motion.button>
             ) : (
-              <motion.div 
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex items-center gap-2 bg-app-surface py-1.5 px-3 rounded-full border border-app-border select-none"
-              >
+              <div className="flex items-center gap-2 bg-app-surface py-1.5 px-3 rounded-full border border-app-border select-none">
                 <Icons.Clock className="w-3 h-3 text-app-text-dim/60" />
                 <span className="text-[10px] uppercase font-bold tracking-widest text-app-text-dim/60">
                   {formatLastUpdated(weather.fetchedAt)}
                 </span>
-              </motion.div>
+              </div>
             )}
           </div>
         )}
-      </div>
-
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-        className="mb-4 flex flex-col items-center"
-      >
-        <WeatherIcon 
-          name={info.icon as any} 
-          style={settings.iconStyle}
-          className="w-32 h-32 text-app-text main-weather-svg-icon" 
-          strokeWidth={1.2} 
-        />
       </motion.div>
-      
-      <motion.div
-        initial={{ y: 30, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.1, duration: 0.8 }}
-        className="relative"
+
+      {/* Core weather statistics container */}
+      <div
+        className="flex flex-col items-center overflow-visible w-full"
       >
-        <div className="flex justify-center -mr-6">
+        <motion.div 
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={slideTransition}
+          className="mb-4 flex flex-col items-center overflow-visible"
+        >
+          <WeatherIcon 
+            name={info.icon as any} 
+            style={settings.iconStyle}
+            className="w-32 h-32 text-app-text main-weather-svg-icon" 
+            strokeWidth={1.2} 
+          />
+        </motion.div>
+        
+        <motion.div 
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={slideTransition}
+          className="relative flex justify-center -mr-6"
+        >
           <span className="text-[140px] leading-none font-[200] tracking-tighter text-app-text">
             {formatTemp(weather.current.temperature, settings.unitTemp)}
           </span>
           <span className="text-3xl font-light text-app-text-dim mt-6 ml-2">°</span>
-        </div>
-        <div className="flex flex-col items-center gap-2 mt-4">
+        </motion.div>
+
+        <motion.div 
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={slideTransition}
+          className="flex flex-col items-center gap-2 mt-4"
+        >
           <span className="text-xl font-medium text-app-text/90">{info.label}</span>
           <div className="flex items-center gap-3 text-app-text-dim text-[14px] font-medium tracking-wide">
             <span>H: {formatTemp(weather.daily.temperatureMax?.[0] ?? 0, settings.unitTemp)}°</span>
             <span className="w-1 h-1 bg-app-border rounded-full" />
             <span>L: {formatTemp(weather.daily.temperatureMin?.[0] ?? 0, settings.unitTemp)}°</span>
           </div>
-        </div>
-      </motion.div>
+        </motion.div>
+      </div>
     </div>
   );
 }

@@ -16,7 +16,7 @@ import {
   wireThresholdToggle,
   applyNotifToggleStates
 } from '../services/oneSignalService';
-import { Package, Cloud, FileText, Shield, ArrowUpRight } from 'lucide-react';
+import { Package, Cloud, FileText, Shield, ArrowUpRight, Info } from 'lucide-react';
 
 interface SettingsScreenProps {
   settings: Settings;
@@ -492,44 +492,45 @@ const SettingsScreen = ({
           .catch(err => console.warn(err));
       }
     } else {
-      setPushStatus('registering');
-      try {
-        const playerId = await requestNotificationPermission();
-        if (playerId) {
-          setPushStatus('synced');
-          const updated = { ...localSettings, pushEnabled: true, oneSignalPlayerId: playerId };
-          setLocalSettings(updated);
-          onUpdate(updated);
-          await wirePushToggle(true, showToast);
+      // Toggle instantly in the UI with synced status to keep transition super snappy
+      setPushStatus('synced');
+      const updated = { ...localSettings, pushEnabled: true };
+      setLocalSettings(updated);
+      onUpdate(updated);
+      await wirePushToggle(true, showToast);
 
-          syncUserSettingsToFirebase(playerId, updated, activeLocation || null)
-            .catch(err => console.warn(err));
-        } else {
-          // Graceful fallback for sandboxed dev iframes (like AI Studio preview frame) where API is blocked
-          setPushStatus('synced');
-          const updated = { ...localSettings, pushEnabled: true };
-          setLocalSettings(updated);
-          onUpdate(updated);
-          await wirePushToggle(true, showToast);
-        }
+      // Request permission asynchronously behind the scenes without blocking UI
+      try {
+        requestNotificationPermission().then((playerId) => {
+          if (playerId) {
+            const finalUpdated = { ...updated, oneSignalPlayerId: playerId };
+            setLocalSettings(finalUpdated);
+            onUpdate(finalUpdated);
+            syncUserSettingsToFirebase(playerId, finalUpdated, activeLocation || null)
+              .catch(err => console.warn(err));
+          }
+        }).catch((e) => {
+          console.warn('Silent permission query failed:', e);
+        });
       } catch (err) {
-        // Fallback toggling
-        setPushStatus('synced');
-        const updated = { ...localSettings, pushEnabled: true };
-        setLocalSettings(updated);
-        onUpdate(updated);
-        await wirePushToggle(true, showToast);
+        console.warn('Async notification handle error:', err);
       }
     }
   };
 
-  const currentTiles = localSettings.enabledTiles || {
+  const currentTiles = {
     aqi: true,
     uv: true,
     humidity: true,
     visibility: true,
     precipitation: true,
-    wind: true
+    wind: true,
+    forecast: true,
+    sunMoon: true,
+    aqiGraph: true,
+    aqiPollutant: true,
+    uvGraph: true,
+    ...(localSettings.enabledTiles || {})
   };
 
   const handleToggleTile = (key: keyof Required<Settings>['enabledTiles']) => {
@@ -542,12 +543,12 @@ const SettingsScreen = ({
 
   const subViews = {
     agreement: {
-      title: "User Agreement",
-      content: "By using this Application, you acknowledge and agree that weather data is provided 'as is' for informational purposes only. Nimbus Labs does not guarantee the absolute accuracy, completeness, or timeliness of data due to the inherent nature of meteorological forecasting.\n\nYou agree not to use this Application for critical safety decisions, such as maritime navigation, aviation, or emergency management. Any reliance on the information provided is strictly at your own risk.\n\nWe reserve the right to modify services, features, or data providers without prior notice. Continuous service is not guaranteed during scheduled maintenance or upstream provider outages."
+      title: "Terms of Use",
+      content: `Last Updated: June 2026\n\nBy using Nimbus Black, you agree to the following terms.\n\n## Informational Use Only\n\nWeather information, forecasts, alerts, radar imagery, and environmental data are provided for informational purposes only.\n\nForecasting is inherently uncertain and conditions may change rapidly.\n\n## No Guarantee of Accuracy\n\nNimbus Black and its data providers do not guarantee the accuracy, completeness, availability, or timeliness of any information displayed within the application.\n\n## Not for Critical Safety Decisions\n\nThe application should not be relied upon for:\n- Aviation operations\n- Maritime navigation\n- Emergency management\n- Disaster response\n- Life-safety decisions\n- Any activity where inaccurate weather information could result in injury, damage, or loss\n\nAlways consult official government meteorological agencies when safety-critical decisions are involved.\n\n## Service Availability\n\nThe application depends on third-party data providers and internet connectivity.\n\nFeatures, services, data sources, and availability may change without notice.\n\nTemporary outages may occur due to maintenance, infrastructure issues, or provider interruptions.\n\n## Open Source Software\n\nNimbus Black is provided as open-source software and may be modified, forked, or redistributed according to the project's license.\n\n## Disclaimer of Warranties\n\nThe application is provided "as is" and "as available" without warranties of any kind, express or implied.\n\n## Limitation of Liability\n\nTo the maximum extent permitted by applicable law, Nimbus Black and its contributors shall not be liable for any direct, indirect, incidental, consequential, or special damages arising from the use of, or inability to use, the application.\n\n## Acceptance of Terms\n\nBy using Nimbus Black, you acknowledge that you have read and agree to these Terms of Use.`
     },
     privacy: {
-      title: "Privacy Notice",
-      content: "We respect your digital privacy. This Application is designed to function with minimal data footprint. Your precise location data is processed locally to fetch hyper-local weather alerts and is never transmitted to our servers for storage or profiling.\n\nWe do not collect any data. Any analytical data is fully anonymized and used solely to improve application performance and stability.\n\nYour saved locations and settings are stored locally on your device via browser storage. We have no access to this data. For integrated services like Open-Meteo, please refer to their respective privacy documentation regarding IP-based data processing."
+      title: "Privacy Policy",
+      content: `Last Updated: June 2026\n\nNimbus Black is designed with a privacy-first approach. The application does not require user accounts, subscriptions, or personal information to function.\n\n## What Data Is Used\n\nTo provide weather forecasts, radar imagery, alerts, and environmental information, the application may access:\n- Your selected locations\n- Device location (only when permission is granted)\n- Application preferences and settings\n\nThis information is used solely to provide weather-related functionality.\n\n## Local-First Storage\n\nYour preferences, saved locations, units, themes, and alert settings are stored locally on your device using browser storage.\n\nNimbus Black does not operate user accounts and does not maintain a database of user profiles.\n\n## Third-Party Weather Services\n\nWeather forecasts, alerts, and environmental data are obtained from third-party providers such as Open-Meteo and related meteorological data sources.\n\nWhen weather information is requested, certain data such as your approximate IP address or requested coordinates may be processed by these providers according to their own privacy policies.\n\nNimbus Black does not control how third-party providers process data.\n\n## Analytics and Tracking\n- No user accounts\n- No advertising networks\n- No behavioral profiling\n- No sale of personal data\n- No third-party tracking libraries\n\nThe application does not intentionally collect personal information for marketing or advertising purposes.\n\n## Your Data\n\nYou remain in control of your data.\n\nRemoving saved locations, clearing browser storage, uninstalling the PWA, or clearing site data will remove locally stored application information.\n\n## Open Source\n\nNimbus Black is an open-source project. The source code is publicly available for inspection, review, and contribution under the project's license.\n\n## Changes\n\nThis Privacy Policy may be updated occasionally to reflect changes in functionality or service providers. Continued use of the application constitutes acceptance of the updated policy.`
     }
   };
 
@@ -661,15 +662,16 @@ const SettingsScreen = ({
       key="settings-subview-panel"
       ref={scrollRef}
       id="subview-page"
-      initial={{ x: "100%", opacity: 0.9 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: "100%", opacity: 0.9 }}
+      data-no-swipe
+      initial={{ x: "100%" }}
+      animate={{ x: 0 }}
+      exit={{ x: "100%" }}
       transition={{ 
         type: "spring",
         stiffness: 280,
         damping: 30
       }}
-      className="fixed inset-0 z-[130] bg-app-bg overflow-y-auto subview-page touch-pan-y"
+      className="fixed inset-0 z-[1020] bg-app-bg overflow-y-auto subview-page touch-pan-y"
     >
       <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">
         <header className="flex items-center justify-between mb-8 px-1 h-10 w-full">
@@ -682,41 +684,71 @@ const SettingsScreen = ({
               Haptic.light(localSettings.hapticEnabled);
               onClose();
             }} 
-            className="flex items-center gap-1.5 text-app-text-dim hover:text-white transition-colors cursor-pointer select-none bg-transparent border-none outline-none"
+            className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/15 transition-all shadow-xl select-none"
           >
-            <span className="text-[15px] font-bold">BACK</span>
-            <Icons.ChevronRight className="w-5 h-5 text-app-text-dim" style={{ strokeWidth: 2.2 }} />
+            <Icons.ChevronLeft className="w-5.5 h-5.5 text-app-text" strokeWidth={2.5} />
           </motion.button>
         </header>
-        <div className="text-[15px] p-1 font-medium leading-relaxed text-app-text/80 space-y-6">
-          {content.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}
+        <div className="text-[14px] p-1 font-normal leading-relaxed text-app-text/75 space-y-5">
+          {content.split('\n\n').map((block, i) => {
+            const trimmed = block.trim();
+            if (trimmed.startsWith('## ')) {
+              return (
+                <h2 key={i} className="text-[15px] font-bold text-white tracking-tight pt-3">
+                  {trimmed.substring(3)}
+                </h2>
+              );
+            }
+            if (trimmed.startsWith('- ')) {
+              const items = trimmed.split('\n').map(line => line.replace(/^-\s*/, '').trim());
+              return (
+                <ul key={i} className="list-disc pl-5 space-y-2 text-app-text-dim">
+                  {items.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              );
+            }
+            return (
+              <p key={i} className="whitespace-pre-line leading-relaxed">
+                {trimmed}
+              </p>
+            );
+          })}
         </div>
       </div>
     </motion.div>
   );
 
   return (
-    <div className="relative w-full h-full min-h-screen">
+    <motion.div
+      key="settings-screen-root"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ 
+        duration: 0.2, 
+        ease: "easeOut"
+      }}
+      className="fixed inset-0 z-[99999] bg-black overflow-hidden"
+    >
       <AnimatePresence mode="sync">
         <motion.div 
           key="settings-main-panel"
           ref={mainScrollRef}
-          initial={{ opacity: 0, y: 40, scale: 0.99 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 40, scale: 0.99 }}
+          initial={{ opacity: 1, x: 0 }}
+          animate={{ 
+            opacity: (activeSubView !== 'none' || showDataSources || showTilesCustomisation) ? 0 : 1,
+            x: (activeSubView !== 'none' || showDataSources || showTilesCustomisation) ? -15 : 0,
+            pointerEvents: (activeSubView !== 'none' || showDataSources || showTilesCustomisation) ? 'none' : 'auto' as any
+          }}
+          exit={{ opacity: 1 }}
           transition={{ 
             type: "spring", 
-            damping: 28, 
-            stiffness: 350, 
-            mass: 0.8,
-            velocity: 2
+            damping: 30, 
+            stiffness: 280
           }}
-          className={cn(
-            "fixed inset-0 z-[120] bg-app-bg overflow-y-auto gpu settings-panel touch-pan-y will-change-transform transition-all duration-300",
-            (activeSubView !== 'none' || showDataSources || showTilesCustomisation) 
-              ? "pointer-events-none opacity-0 select-none translate-x-[-15px]" 
-              : "pointer-events-auto opacity-100 translate-x-0"
-          )}
+          className="absolute inset-0 z-[1005] bg-app-bg overflow-y-auto gpu settings-panel touch-pan-y"
           data-no-swipe
         >
             <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-24">
@@ -730,10 +762,9 @@ const SettingsScreen = ({
                     Haptic.light(localSettings.hapticEnabled);
                     onClose();
                   }}
-                  className="flex items-center gap-1.5 text-app-text-dim hover:text-white transition-colors cursor-pointer select-none bg-transparent border-none outline-none"
+                  className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/15 transition-all shadow-xl select-none"
                 >
-                  <span className="text-[15px] font-bold">BACK</span>
-                  <Icons.ChevronRight className="w-5 h-5 text-app-text-dim" style={{ strokeWidth: 2.2 }} />
+                  <Icons.ChevronLeft className="w-5.5 h-5.5 text-app-text" strokeWidth={2.5} />
                 </motion.button>
               </header>
 
@@ -899,7 +930,26 @@ const SettingsScreen = ({
                     )}>Coloured</p>
                   </button>
                 </div>
+                <SelectRow 
+                  label="Atmosphere Glow" 
+                  value={localSettings.backgroundGlow || 'on'} 
+                  hapticEnabled={localSettings.hapticEnabled}
+                  options={[
+                    { label: 'ON', value: 'on' },
+                    { label: 'OFF', value: 'off' },
+                    { label: 'STATIC', value: 'static' }
+                  ]}
+                  onChange={(val) => updateSetting('backgroundGlow', val)}
+                />
               </Section>
+
+              {/* Performance guidance footnote */}
+              <div className="px-5 -mt-5 mb-8 flex gap-3 text-app-text-dim/80 text-[11px] leading-relaxed max-w-[342px]">
+                <Info className="w-3.5 h-3.5 text-app-text-dim/50 shrink-0 mt-0.5" strokeWidth={2} />
+                <p>
+                  Experience minor UI lag on older devices? Try turning off the atmosphere glow for a smoother experience.
+                </p>
+              </div>
 
               <Section title="General">
                 <ToggleRow 
@@ -923,7 +973,7 @@ const SettingsScreen = ({
                 <AboutRow 
                   icon={Package} 
                   title="App version" 
-                  subtitle="1.2.2" 
+                  subtitle="1.0.2" 
                   hapticEnabled={localSettings.hapticEnabled}
                 />
                 <AboutRow 
@@ -973,11 +1023,12 @@ const SettingsScreen = ({
             key="settings-data-sources-panel"
             ref={scrollRef}
             id="sources-page"
-            initial={{ x: "100%", opacity: 0.9 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: "100%", opacity: 0.9 }}
+            data-no-swipe
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 280 }}
-            className="fixed inset-0 z-[125] bg-app-bg overflow-y-auto sources-page touch-pan-y"
+            className="fixed inset-0 z-[1010] bg-app-bg overflow-y-auto sources-page touch-pan-y"
           >
             <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">
               <header className="flex items-center justify-between mb-8 px-1 h-10 w-full">
@@ -991,10 +1042,9 @@ const SettingsScreen = ({
                     setShowDataSources(false);
                     handleBack();
                   }}
-                  className="flex items-center gap-1.5 text-app-text-dim hover:text-white transition-colors cursor-pointer select-none bg-transparent border-none outline-none"
+                  className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/15 transition-all shadow-xl select-none"
                 >
-                  <span className="text-[15px] font-bold">BACK</span>
-                  <Icons.ChevronRight className="w-5 h-5 text-app-text-dim" style={{ strokeWidth: 2.2 }} />
+                  <Icons.ChevronLeft className="w-5.5 h-5.5 text-app-text" strokeWidth={2.5} />
                 </motion.button>
               </header>
 
@@ -1040,11 +1090,12 @@ const SettingsScreen = ({
             key="settings-tiles-customisation-panel"
             ref={scrollRef}
             id="tiles-page"
-            initial={{ x: "100%", opacity: 0.9 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: "100%", opacity: 0.9 }}
+            data-no-swipe
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 280 }}
-            className="fixed inset-0 z-[125] bg-app-bg overflow-y-auto tiles-page touch-pan-y"
+            className="fixed inset-0 z-[1010] bg-app-bg overflow-y-auto tiles-page touch-pan-y"
           >
             <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">
               <header className="flex items-center justify-between mb-12 px-1 h-10 w-full">
@@ -1057,10 +1108,9 @@ const SettingsScreen = ({
                     Haptic.light(localSettings.hapticEnabled);
                     handleBack();
                   }}
-                  className="flex items-center gap-1.5 text-app-text-dim hover:text-white transition-colors cursor-pointer select-none bg-transparent border-none outline-none"
+                  className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/15 transition-all shadow-xl select-none"
                 >
-                  <Icons.ChevronLeft className="w-5 h-5 text-app-text-dim" style={{ strokeWidth: 2 }} />
-                  <span className="text-[15px] font-bold">BACK</span>
+                  <Icons.ChevronLeft className="w-5.5 h-5.5 text-app-text" strokeWidth={2.5} />
                 </motion.button>
               </header>
 
@@ -1078,6 +1128,20 @@ const SettingsScreen = ({
                   value={!!currentTiles.uv} 
                   hapticEnabled={localSettings.hapticEnabled}
                   onToggle={() => handleToggleTile('uv')} 
+                />
+                <ToggleRow 
+                  label="7-Day Forecast" 
+                  description="Future meteorological trend projections"
+                  value={currentTiles.forecast !== false} 
+                  hapticEnabled={localSettings.hapticEnabled}
+                  onToggle={() => handleToggleTile('forecast')} 
+                />
+                <ToggleRow 
+                  label="Sun & Moon Path" 
+                  description="Solar & lunar altitude and transit lines"
+                  value={currentTiles.sunMoon !== false} 
+                  hapticEnabled={localSettings.hapticEnabled}
+                  onToggle={() => handleToggleTile('sunMoon')} 
                 />
                 <ToggleRow 
                   label="Humidity" 
@@ -1108,6 +1172,38 @@ const SettingsScreen = ({
                   onToggle={() => handleToggleTile('wind')} 
                 />
               </Section>
+
+              {(currentTiles.aqi || currentTiles.uv) && (
+                <Section title="Detailed Card Elements">
+                  {currentTiles.aqi && (
+                    <>
+                      <ToggleRow 
+                        label="AQI Graph" 
+                        description="24-hour historical trend sparkline"
+                        value={currentTiles.aqiGraph !== false} 
+                        hapticEnabled={localSettings.hapticEnabled}
+                        onToggle={() => handleToggleTile('aqiGraph')} 
+                      />
+                      <ToggleRow 
+                        label="AQI Pollutants & Recommendation" 
+                        description="Station statistics and health advisory"
+                        value={currentTiles.aqiPollutant !== false} 
+                        hapticEnabled={localSettings.hapticEnabled}
+                        onToggle={() => handleToggleTile('aqiPollutant')} 
+                      />
+                    </>
+                  )}
+                  {currentTiles.uv && (
+                    <ToggleRow 
+                      label="UV Graph" 
+                      description="12-hour exposure curve & index projections"
+                      value={currentTiles.uvGraph !== false} 
+                      hapticEnabled={localSettings.hapticEnabled}
+                      onToggle={() => handleToggleTile('uvGraph')} 
+                    />
+                  )}
+                </Section>
+              )}
             </div>
           </motion.div>
         )}
@@ -1133,7 +1229,7 @@ const SettingsScreen = ({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 };
 

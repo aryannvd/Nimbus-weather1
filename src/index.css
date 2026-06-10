@@ -87,10 +87,9 @@ input, textarea, [contenteditable="true"] {
   -webkit-backface-visibility: hidden;
 }
 
-/* Replace all CSS transitions over 300ms — reduce to 150ms */
-* {
-  transition-duration: 150ms !important;
-  transition-timing-function: ease-out !important;
+/* Optimized transitions for interactive elements without overriding Framer Motion or spin animations */
+button, a, [role="button"], .btn, .interactive-el {
+  transition: background-color 150ms ease-out, opacity 150ms ease-out, transform 150ms ease-out, border-color 150ms ease-out;
 }
 
 /* Smooth scrolling and prevent bounce */

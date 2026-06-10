@@ -150,11 +150,12 @@ const CityManager = ({
         scale: { duration: 0.5 },
         opacity: { duration: 0.3 }
       }}
-      className="fixed inset-0 z-[100] bg-black overflow-y-auto gpu"
+      className="fixed inset-0 z-[99990] bg-black overflow-y-auto gpu"
+      data-no-swipe
     >
       <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-32 pb-24">
         <header className="flex items-center justify-between mb-8 px-1">
-          <h1 className="text-[34px] font-bold text-white tracking-tight">Weather</h1>
+          <h1 className="text-[34px] font-semibold text-white tracking-tight uppercase">MANAGE CITIES</h1>
           <motion.button 
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -163,10 +164,9 @@ const CityManager = ({
               Haptic.light(hapticEnabled);
               onClose();
             }}
-            className="flex items-center gap-1.5 text-white/60 hover:text-white transition-colors cursor-pointer select-none"
+            className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/15 transition-all shadow-xl select-none"
           >
-            <span className="text-[15px] font-bold text-white/80">BACK</span>
-            <Icons.ChevronRight className="w-5 h-5 text-white/60" style={{ strokeWidth: 2.2 }} />
+            <Icons.ChevronLeft className="w-5.5 h-5.5 text-white" strokeWidth={2.5} />
           </motion.button>
         </header>
 

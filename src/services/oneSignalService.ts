@@ -11,13 +11,107 @@ declare global {
 }
 
 // ============================================================================
-// STEP 1 — ONESIGNAL INIT
+// STEP 1 — ONESIGNAL INIT WITH SAFE WRAPPERS
 // ============================================================================
 const ONESIGNAL_APP_ID = "d78d4db3-2898-4f81-8bba-c8b5b719ee1b";
 
-window.OneSignalDeferred = window.OneSignalDeferred || [];
+export const safeOneSignal = async (callback: (OneSignal: any) => Promise<void> | void) => {
+  try {
+    if (typeof window === "undefined") return;
+    if (typeof (window as any).OneSignalDeferred === "undefined") {
+      (window as any).OneSignalDeferred = [];
+    }
+    (window as any).OneSignalDeferred.push(async (OneSignal: any) => {
+      try {
+        await callback(OneSignal);
+      } catch (e: any) {
+        console.warn("OneSignal error within callback:", e?.message || e);
+      }
+    });
+  } catch (e) {
+    console.warn("OneSignal wrapper error:", e);
+  }
+};
 
-window.OneSignalDeferred.push(async (OneSignal: any) => {
+export const SafeNotif = {
+  async init(): Promise<boolean> {
+    try {
+      if (typeof window === "undefined") return false;
+      if (!("Notification" in window)) {
+        console.warn("Notifications not supported");
+        return false;
+      }
+      const NativeNotif = (window as any).Notification;
+      if (!NativeNotif) {
+        return false;
+      }
+      if (NativeNotif.permission === "granted") {
+        return true;
+      }
+      if (NativeNotif.permission !== "denied") {
+        const perm = await NativeNotif.requestPermission();
+        return perm === "granted";
+      }
+      return false;
+    } catch (e: any) {
+      console.warn("Notification init failed:", e?.message || e);
+      return false;
+    }
+  },
+
+  async send(title: string, body: string, icon: string = "/icon-192.png"): Promise<boolean> {
+    try {
+      if (typeof window === "undefined") return false;
+      // Method 1 — Service Worker (works on HTTPS)
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.ready.catch(() => null);
+
+        if (reg && 'showNotification' in reg) {
+          await reg.showNotification(title, {
+            body,
+            icon,
+            badge: icon,
+            vibrate: [100, 50, 100],
+            tag: "nimbus",
+            renotify: true,
+          });
+          console.log("Notification sent via SW:", title);
+          return true;
+        }
+      }
+
+      // Method 2 — Direct (only works locally)
+      if (typeof window !== "undefined" && "Notification" in window) {
+        const NativeNotif = (window as any).Notification;
+        if (NativeNotif && NativeNotif.permission === "granted") {
+          new NativeNotif(title, { body, icon });
+          return true;
+        }
+      }
+
+      console.warn("No notification method available");
+      return false;
+
+    } catch (e: any) {
+      // NEVER crash the app for notifications
+      console.warn("Notification failed:", e?.message || e);
+      return false;
+    }
+  },
+
+  getPermission(): "granted" | "denied" | "default" {
+    try {
+      if (typeof window === "undefined") return "default";
+      if (!("Notification" in window)) return "default";
+      const NativeNotif = (window as any).Notification;
+      return NativeNotif ? NativeNotif.permission : "default";
+    } catch (e) {
+      return "default";
+    }
+  }
+};
+
+safeOneSignal(async (OneSignal: any) => {
   await OneSignal.init({
     appId: ONESIGNAL_APP_ID,
     notifyButton: { enable: false },
@@ -114,8 +208,7 @@ export const applyNotifToggleStates = () => {
 export const wirePushToggle = async (enabled: boolean, showToast?: (msg: string) => void) => {
   NotifSettings.save("enabled", enabled);
 
-  const OneSignalDeferred = window.OneSignalDeferred || [];
-  OneSignalDeferred.push(async (OneSignal: any) => {
+  safeOneSignal(async (OneSignal: any) => {
     try {
       if (enabled) {
         if (OneSignal.User?.PushSubscription?.optIn) {
@@ -137,8 +230,7 @@ export const wirePushToggle = async (enabled: boolean, showToast?: (msg: string)
 export const wireMorningToggle = async (enabled: boolean, showToast?: (msg: string) => void) => {
   NotifSettings.save("morning", enabled);
 
-  const OneSignalDeferred = window.OneSignalDeferred || [];
-  OneSignalDeferred.push(async (OneSignal: any) => {
+  safeOneSignal(async (OneSignal: any) => {
     try {
       OneSignal.User.addTag("morning_summary", enabled ? "true" : "false");
     } catch (e) {
@@ -155,8 +247,7 @@ export const wireMorningToggle = async (enabled: boolean, showToast?: (msg: stri
 export const wireNightToggle = async (enabled: boolean, showToast?: (msg: string) => void) => {
   NotifSettings.save("night", enabled);
 
-  const OneSignalDeferred = window.OneSignalDeferred || [];
-  OneSignalDeferred.push(async (OneSignal: any) => {
+  safeOneSignal(async (OneSignal: any) => {
     try {
       OneSignal.User.addTag("night_summary", enabled ? "true" : "false");
     } catch (e) {
@@ -178,31 +269,38 @@ export const wireThresholdToggle = (type: 'rain' | 'snow' | 'storm' | 'severe', 
 // ============================================================================
 export const sendNotification = (title: string, body: string) => {
   if (!NotifSettings.enabled) return;
+  if (typeof window === "undefined") return;
 
-  const OneSignalDeferred = window.OneSignalDeferred || [];
-  OneSignalDeferred.push(async (OneSignal: any) => {
+  // If permission is not explicitly granted, do not send notifications at all
+  if (SafeNotif.getPermission() !== "granted") {
+    console.log("Skipping push notification because permission is not granted.");
+    return;
+  }
+
+  safeOneSignal(async (OneSignal: any) => {
     try {
-      const isSubscribed = await OneSignal.User.PushSubscription.optedIn;
-
-      // Graceful local SW fallback check for offline visual representation
-      const reg = await navigator.serviceWorker?.ready.catch(() => null);
-
-      if (reg) {
-        reg.showNotification(title, {
-          body,
-          icon: "/icon-192.png",
-          badge: "/icon-96.png",
-          vibrate: [100, 50, 100],
-          tag: "nimbus-weather",
-          renotify: true,
-        });
+      const playerId = OneSignal.User?.PushSubscription?.id || localStorage.getItem("onesignal_player_id");
+      if (playerId) {
+        fetch("https://onesignal.com/api/v1/notifications", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            app_id: "d78d4db3-2898-4f81-8bba-c8b5b719ee1b",
+            include_subscription_ids: [playerId],
+            headings: { en: title },
+            contents: { en: body }
+          })
+        }).catch(err => console.warn("OneSignal service push failed:", err));
       }
-
-      console.log("Notification sent:", title, body);
     } catch (err) {
-      console.warn("Failed to dispatch push notification:", err);
+      console.warn("Failed to dispatch push notification via REST:", err);
     }
   });
+
+  // Safe direct/SW notification helper
+  SafeNotif.send(title, body);
 };
 
 // Helper emoji picker for specified text summaries
@@ -416,8 +514,7 @@ export function getOneSignal(): any {
 export async function initializeOneSignal(onSubscriptionChange?: (playerId: string | null) => void): Promise<string | null> {
   return new Promise((resolve) => {
     try {
-      const OneSignalDeferred = window.OneSignalDeferred || [];
-      OneSignalDeferred.push(async (OneSignal: any) => {
+      safeOneSignal(async (OneSignal: any) => {
         let playerId = null;
         if (OneSignal.User?.PushSubscription?.id) {
           playerId = OneSignal.User.PushSubscription.id;
@@ -437,8 +534,7 @@ export async function initializeOneSignal(onSubscriptionChange?: (playerId: stri
 export async function requestNotificationPermission(): Promise<string | null> {
   return new Promise((resolve) => {
     try {
-      const OneSignalDeferred = window.OneSignalDeferred || [];
-      OneSignalDeferred.push(async (OneSignal: any) => {
+      safeOneSignal(async (OneSignal: any) => {
         try {
           if (OneSignal.Notifications?.requestPermission) {
             await OneSignal.Notifications.requestPermission();

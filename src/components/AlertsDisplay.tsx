@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { RawIcons } from './WeatherIcons';
-import { cn, GLASS_STYLE_SUBTLE } from '../lib/utils';
+import { cn } from '../lib/utils';
 
 interface WeatherAlert {
   id: string;
@@ -31,96 +31,152 @@ export default function AlertsDisplay({ alerts, onDismiss }: AlertsDisplayProps)
   return (
     <div 
       className={cn(
-        "w-full px-6 mb-8 mt-2 transition-all duration-500 ease-in-out cursor-pointer",
-        isExpanded ? "space-y-3" : "relative"
+        "w-full px-6 transition-all duration-300 ease-in-out cursor-pointer",
+        isExpanded ? "space-y-3 mb-8" : "relative mb-14"
       )}
       onClick={handleToggle}
-      style={{ minHeight: isExpanded ? 'auto' : '84px' }}
+      style={{ minHeight: isExpanded ? 'auto' : '108px' }}
     >
       <AnimatePresence mode="popLayout">
         {alerts.map((alert, index) => {
           const isStacked = !isExpanded && alerts.length > 1;
           const stackIndex = index;
           
+          let opacityVal = 1;
+          let yVal = 0;
+          let scaleXVal = 1;
+          let zIndexVal = alerts.length - index;
+          let marginTopVal = 0;
+
+          if (isStacked) {
+            if (stackIndex === 0) {
+              opacityVal = 1;
+              yVal = 0;
+              scaleXVal = 1.0;
+              zIndexVal = 30;
+              marginTopVal = 0;
+            } else if (stackIndex === 1) {
+              opacityVal = 0.8;
+              yVal = 12;
+              scaleXVal = 0.8;
+              zIndexVal = 20;
+              marginTopVal = -100;
+            } else if (stackIndex === 2) {
+              opacityVal = 0.5;
+              yVal = 24;
+              scaleXVal = 0.7;
+              zIndexVal = 10;
+              marginTopVal = -100;
+            } else {
+              opacityVal = 0;
+              yVal = 36;
+              scaleXVal = 0.4;
+              zIndexVal = 0;
+              marginTopVal = -100;
+            }
+          }
+
+          // Strip any leading weather/warning emoji from title dynamically
+          const cleanTitle = alert.title.replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]/g, '').trim();
+
           return (
             <motion.div
               key={alert.id}
-              initial={{ opacity: 0, y: -20, scale: 0.9 }}
-              animate={isExpanded ? {
-                opacity: 1,
-                y: 0,
-                scale: 1,
-                zIndex: alerts.length - index,
-              } : {
-                opacity: stackIndex > 2 ? 0 : 1 - (stackIndex * 0.15),
-                y: stackIndex * 6,
-                scale: 1 - (stackIndex * 0.03),
-                zIndex: alerts.length - stackIndex,
-                position: isStacked && stackIndex > 0 ? 'absolute' : 'relative',
+              initial={false}
+              animate={{
+                opacity: opacityVal,
+                y: yVal,
+                scaleX: scaleXVal,
+                scaleY: 1,
+                zIndex: zIndexVal,
+                marginTop: marginTopVal,
+                position: 'relative',
                 top: 0,
                 left: 0,
                 right: 0,
+                height: isStacked ? 100 : 'auto',
               }}
               style={{ transformOrigin: 'top center' }}
-              exit={{ opacity: 0, scale: 0.9, y: 10 }}
+              exit={{ opacity: 0, scaleX: 0.9, y: 10 }}
               transition={{
                 type: "tween",
-                ease: "easeOut",
-                duration: 0.2
+                ease: [0.16, 1, 0.3, 1],
+                duration: 0.18,
+                scaleX: { duration: 0 }
               }}
               className={cn(
                 "p-4 rounded-[24px] flex gap-4 items-start relative overflow-hidden group transition-all",
-                GLASS_STYLE_SUBTLE,
-                "bg-app-text/[0.05] border-app-border backdrop-blur-xl",
+                "bg-app-surface border border-app-border backdrop-blur-xl",
                 !isExpanded && index > 0 && "pointer-events-none"
               )}
             >
               {/* Glow background */}
               <div className="absolute inset-0 bg-gradient-to-br from-app-text/[0.03] to-transparent pointer-events-none" />
-              
-              <div className="mt-1 flex-shrink-0">
-                {alert.type === 'rain' && <RawIcons.CloudRain className="w-5 h-5 text-blue-500" />}
-                {alert.type === 'snow' && <RawIcons.Snowflake className="w-5 h-5 text-app-text" />}
-                {alert.type === 'storm' && <RawIcons.CloudLightning className="w-5 h-5 text-amber-500" />}
-                {alert.type === 'severe' && <RawIcons.ShieldAlert className="w-5 h-5 text-rose-500" />}
-                {alert.type === 'severe_storm' && <RawIcons.Zap className="w-5 h-5 text-rose-600 animate-pulse" />}
-              </div>
 
-              <div className="flex-1 min-w-0">
-                <h4 className={cn(
-                  "text-[14px] font-bold mb-0.5 tracking-tight uppercase",
-                  alert.type === 'severe_storm' ? "text-rose-500" : "text-app-text"
-                )}>
-                  {alert.title}
-                </h4>
-                <p className="text-[13px] text-app-text-dim leading-tight">
-                  {alert.message}
-                </p>
-              </div>
-
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDismiss(alert.id);
-                }}
-                className="p-1 opacity-40 hover:opacity-100 transition-opacity flex-shrink-0"
+              {/* Inner content wrapper which transitions its opacity seamlessly instead of mounting/unmounting */}
+              <div 
+                className={cn(
+                  "flex gap-4 items-start w-full relative z-10 transition-opacity duration-200",
+                  isStacked && stackIndex > 0 ? "opacity-0 pointer-events-none" : "opacity-100"
+                )}
               >
-                <RawIcons.X className="w-4 h-4 text-app-text" />
-              </button>
+                <div className="mt-1 flex-shrink-0">
+                  {alert.type === 'rain' && <RawIcons.CloudRain className="w-5 h-5 text-blue-500" />}
+                  {alert.type === 'snow' && <RawIcons.Snowflake className="w-5 h-5 text-app-text" />}
+                  {alert.type === 'storm' && <RawIcons.CloudLightning className="w-5 h-5 text-amber-500" />}
+                  {alert.type === 'severe' && <RawIcons.ShieldAlert className="w-5 h-5 text-rose-500" />}
+                  {alert.type === 'severe_storm' && <RawIcons.Zap className="w-5 h-5 text-rose-600 animate-pulse" />}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <h4 className={cn(
+                    "text-[14px] font-bold mb-0.5 tracking-tight uppercase line-clamp-1 truncate",
+                    alert.type === 'severe_storm' ? "text-rose-500" : "text-app-text"
+                  )}>
+                    {cleanTitle}
+                  </h4>
+                  <p 
+                    className="text-[13px] text-app-text-dim leading-snug line-clamp-2"
+                    style={{
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    {alert.message}
+                  </p>
+                </div>
+
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDismiss(alert.id);
+                  }}
+                  className="p-1 opacity-40 hover:opacity-100 transition-opacity flex-shrink-0"
+                >
+                  <RawIcons.X className="w-4 h-4 text-app-text" />
+                </button>
+              </div>
             </motion.div>
           );
         })}
       </AnimatePresence>
       
-      {/* Stack indicator hint for iOS feel */}
-      {!isExpanded && alerts.length > 1 && (
-        <motion.div 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="absolute -bottom-4 left-0 right-0 flex justify-center pointer-events-none"
-        >
-          <div className="w-8 h-1 rounded-full bg-app-text/10" />
-        </motion.div>
+      {/* Show All / Show Less controls matching the iOS design reference */}
+      {alerts.length > 1 && (
+        <div className={cn("flex justify-center relative z-30 transition-all duration-300", isExpanded ? "mt-4" : "mt-12")}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsExpanded(!isExpanded);
+            }}
+            className="flex items-center gap-1 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-[11px] font-bold text-white/60 hover:text-white transition-all active:scale-95 uppercase tracking-wider"
+          >
+            <span>{isExpanded ? 'Show Less' : 'Show All'}</span>
+            <RawIcons.ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-300 ml-1", isExpanded && "rotate-180")} />
+          </button>
+        </div>
       )}
     </div>
   );

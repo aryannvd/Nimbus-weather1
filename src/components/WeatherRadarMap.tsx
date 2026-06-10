@@ -17,54 +17,74 @@ export default function WeatherRadarMap({ activeLocation, onClose, hapticEnabled
   const [activeLayer, setActiveLayer] = useState<RadarLayer>('rain');
   const [iframeLoading, setIframeLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isWeakNetwork, setIsWeakNetwork] = useState(false);
 
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
+    const handleOffline = () => {
+      setIsOffline(true);
+      setIsWeakNetwork(false);
+    };
+
+    const checkConnection = () => {
+      const conn = (navigator as any).connection;
+      if (conn) {
+        setIsWeakNetwork(conn.effectiveType === '2g' || conn.effectiveType === '3g' || conn.saveData);
+      }
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
+    const conn = (navigator as any).connection;
+    if (conn) {
+      conn.addEventListener('change', checkConnection);
+      checkConnection();
+    }
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      if (conn) {
+        conn.removeEventListener('change', checkConnection);
+      }
     };
   }, []);
 
   // Re-trigger loading state when layer or city coordinates change with safety timeout fallback
   useEffect(() => {
-    if (isOffline) return;
+    if (isOffline || isWeakNetwork) return;
     setIframeLoading(true);
     
     const fallbackTimer = setTimeout(() => {
       setIframeLoading(false);
-    }, 2500);
+    }, 2000); // Faster fallback to let the user see whatever is loading immediately
 
     return () => clearTimeout(fallbackTimer);
-  }, [activeLayer, activeLocation.latitude, activeLocation.longitude, isOffline]);
+  }, [activeLayer, activeLocation.latitude, activeLocation.longitude, isOffline, isWeakNetwork]);
 
   const layers: { id: RadarLayer; label: string; icon: keyof typeof Icons; desc: string }[] = [
     { 
       id: 'rain', 
-      label: 'Precipitation', 
+      label: 'Precip', 
       icon: 'CloudRain', 
       desc: 'Real-time rain, snow, thunder & precipitation forecast loops' 
     },
     { 
       id: 'temp', 
-      label: 'Temperature', 
+      label: 'Temp', 
       icon: 'Thermometer', 
       desc: 'Thermal contour visualizer showing global heat and cold gradients' 
     },
     { 
       id: 'clouds', 
-      label: 'Cloud Cover', 
+      label: 'Clouds', 
       icon: 'Cloud', 
       desc: 'High-resolution satellite view mapping cloud density and visibility' 
     },
     { 
       id: 'wind', 
-      label: 'Wind Speed', 
+      label: 'Wind', 
       icon: 'Wind', 
       desc: 'Dynamic streamline particle map depicting wind velocities and direction' 
     },
@@ -115,7 +135,7 @@ export default function WeatherRadarMap({ activeLocation, onClose, hapticEnabled
               Haptic.medium(hapticEnabled);
               onClose();
             }}
-            className="flex items-center justify-center bg-white/10 hover:bg-white/20 text-white border border-white/10 rounded-full w-10 h-10 transition-colors cursor-pointer select-none mt-1"
+            className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/15 transition-all shadow-xl select-none mt-1"
             aria-label="Back"
           >
             <Icons.ChevronLeft className="w-5.5 h-5.5 text-app-text" strokeWidth={2.5} />
@@ -137,12 +157,12 @@ export default function WeatherRadarMap({ activeLocation, onClose, hapticEnabled
                   }
                 }}
                 className={cn(
-                  "flex-1 py-2.5 flex flex-col items-center justify-center gap-1.5 text-[10px] font-bold rounded-[14px] relative z-10",
+                  "flex-1 py-2 flex flex-col items-center justify-center gap-1 text-[9px] min-[360px]:text-[10px] font-bold rounded-[14px] relative z-10 min-w-0 px-0.5 transition-all duration-200",
                   isSelected ? "text-black" : "text-app-text-dim hover:text-app-text/70"
                 )}
               >
-                <IconComponent className={cn("w-4 h-4", isSelected ? "text-black" : "text-app-text-dim")} />
-                <span>{layer.label}</span>
+                <IconComponent className={cn("w-4 h-4 shrink-0", isSelected ? "text-black" : "text-app-text-dim")} />
+                <span className="whitespace-nowrap truncate w-full text-center tracking-tight px-0.5">{layer.label}</span>
                 {isSelected && (
                   <div
                     className="absolute inset-0 bg-white rounded-[14px] -z-10 shadow-md"
@@ -154,18 +174,23 @@ export default function WeatherRadarMap({ activeLocation, onClose, hapticEnabled
         </div>
 
         {/* MAP PANEL */}
-        <div className="flex-1 relative rounded-[28px] overflow-hidden border border-app-border bg-black/40 shadow-2xl group flex flex-col justify-center items-center">
+        <div className="flex-1 w-full relative rounded-[28px] overflow-hidden border border-app-border bg-[#08080a] shadow-2xl group flex flex-col justify-center items-center">
+          {/* Subtle meteorological coordinate blueprint grid */}
+          <div className="absolute inset-0 opacity-15 bg-[linear-gradient(rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.06)_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
           
-          {isOffline ? (
+          {isOffline || isWeakNetwork ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-black/80 z-20 gap-4">
               <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-2">
                 <Icons.CloudOff className="w-8 h-8 text-app-text-dim" strokeWidth={1.5} />
               </div>
               <p className="text-[12px] font-black text-white uppercase tracking-[0.15em] leading-none">
-                NO NETWORK CONNECTION
+                {isOffline ? "NO NETWORK CONNECTION" : "WEAK CONNECTION detected"}
               </p>
               <p className="text-[14px] text-app-text-dim max-w-[280px] leading-relaxed mt-1">
-                Connect to the internet to view real-time meteorological radar simulations.
+                {isOffline 
+                  ? "Connect to the internet to view real-time meteorological radar simulations."
+                  : "Your connection is too weak to stream high-density live radar simulations."
+                }
               </p>
             </div>
           ) : (
@@ -185,11 +210,15 @@ export default function WeatherRadarMap({ activeLocation, onClose, hapticEnabled
                   <motion.div 
                     initial={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 z-20 gap-4"
+                    transition={{ duration: 0.2 }}
+                    className="absolute inset-0 flex flex-col items-center justify-center bg-transparent pointer-events-none z-20 gap-4"
                   >
                     <div className="relative flex items-center justify-center">
-                      <div className="w-12 h-12 border-2 border-indigo-500/10 rounded-full border-t-2 border-t-indigo-500 animate-spin" />
+                      <motion.div 
+                        animate={{ rotate: 360 }}
+                        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                        className="w-12 h-12 border-2 border-indigo-500/10 rounded-full border-t-2 border-t-indigo-500" 
+                      />
                       <Icons.Map className="w-5 h-5 text-indigo-400 absolute animate-pulse" />
                     </div>
                     <div className="flex flex-col items-center text-center gap-1">

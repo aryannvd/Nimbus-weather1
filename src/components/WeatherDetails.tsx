@@ -183,7 +183,7 @@ export default function WeatherDetails({ weather, settings }: WeatherDetailsProp
       value: formatPrecipitation(weather?.daily?.precipitationSum?.[0] || 0, settings.unitPrecipitation as any),
       unit: settings.unitPrecipitation === 'inches' ? 'in' : 'mm',
       icon: 'CloudRain',
-      desc: `Today • Chance: ${rainChance}%`,
+      desc: `Chance: ${rainChance}%`,
       isPrecip: true
     },
     {
@@ -325,36 +325,44 @@ export default function WeatherDetails({ weather, settings }: WeatherDetailsProp
               </div>
 
               {/* 24-Hour Minimalist Sparkline Trend with Real-Time Scaling */}
-              <AQISparkline trend={aqi.historicalAqi} color={aqi.isUnavailable ? "#94a3b8" : aqi.color} currentAqi={aqi.usAqi} />
+              {tiles.aqiGraph !== false && (
+                <AQISparkline trend={aqi.historicalAqi} color={aqi.isUnavailable ? "#94a3b8" : aqi.color} currentAqi={aqi.usAqi} />
+              )}
 
-              <div className="bg-app-text/[0.04] rounded-[24px] p-5 border border-app-border/50">
-                <div className="flex gap-4 items-start">
-                  <div className="w-8 h-8 rounded-full bg-app-text/5 shrink-0 flex items-center justify-center">
-                    <WeatherIcon name="Info" className="w-4 h-4 text-app-text/40" />
-                  </div>
-                  <p className="text-[14px] text-app-text/80 font-medium leading-[1.5] py-1">
-                    {aqi.recommendation}
-                  </p>
-                </div>
-                
-                <div className="grid grid-cols-5 gap-3 pt-5 mt-5 border-t border-app-border/30">
-                  {[
-                    { label: 'PM2.5', value: aqi.pm2_5, unit: 'µg/m³' },
-                    { label: 'PM10', value: aqi.pm10, unit: 'µg/m³' },
-                    { label: 'CO', value: aqi.co, unit: 'µg/m³' },
-                    { label: 'NO₂', value: aqi.no2, unit: 'µg/m³' },
-                    { label: 'O₃', value: aqi.o3, unit: 'µg/m³' }
-                  ].map((p, i) => (
-                    <div key={i} className="flex flex-col gap-1.5">
-                      <span className="text-[9px] font-black text-app-text-dim/50 uppercase tracking-[0.05em] truncate">{p.label}</span>
-                      <div className="flex flex-col">
-                        <span className="text-[16px] font-bold text-app-text tracking-tighter leading-none">{Math.round(p.value || 0)}</span>
-                        <span className="text-[9px] text-app-text-dim/60 font-bold leading-tight mt-0.5">{p.unit}</span>
-                      </div>
+              {tiles.aqiPollutant !== false && (
+                <div className="bg-app-text/[0.04] rounded-[24px] p-5 border border-app-border/50">
+                  <div className="flex gap-4 items-start">
+                    <div className="w-8 h-8 rounded-full bg-app-text/5 shrink-0 flex items-center justify-center">
+                      <WeatherIcon name="Info" className="w-4 h-4 text-app-text/40" />
                     </div>
-                  ))}
+                    <p className="text-[14px] text-app-text/80 font-medium leading-[1.5] py-1">
+                      {aqi.recommendation}
+                    </p>
+                  </div>
+                  
+                  <div className="grid grid-cols-5 gap-3 pt-5 mt-5 border-t border-app-border/30">
+                    {[
+                      { label: 'PM2.5', value: aqi.pm2_5, unit: 'µg/m³' },
+                      { label: 'PM10', value: aqi.pm10, unit: 'µg/m³' },
+                      { label: 'CO', value: aqi.co, unit: 'µg/m³' },
+                      { label: 'NO₂', value: aqi.no2, unit: 'nitrogen_dioxide' }, // Wait, keeping original values or p.label but safe mapping
+                      { label: 'O₃', value: aqi.o3, unit: 'µg/m³' }
+                    ].map((p, i) => {
+                      // Let's use clean labeling
+                      const unitStr = p.label === 'NO₂' ? 'µg/m³' : p.unit; // Preserve original PM units and safe fallback
+                      return (
+                        <div key={i} className="flex flex-col gap-1.5">
+                          <span className="text-[9px] font-black text-app-text-dim/50 uppercase tracking-[0.05em] truncate">{p.label}</span>
+                          <div className="flex flex-col">
+                            <span className="text-[16px] font-bold text-app-text tracking-tighter leading-none">{Math.round(p.value || 0)}</span>
+                            <span className="text-[9px] text-app-text-dim/60 font-bold leading-tight mt-0.5">{unitStr}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           )}
         </div>
@@ -389,7 +397,7 @@ export default function WeatherDetails({ weather, settings }: WeatherDetailsProp
           </div>
 
           {/* 13-Point UV Index Sparkline (Past 6 hours, Current hour, Upcoming 6 hours) */}
-          {uvTrendData && uvTrendData.length >= 2 ? (
+          {tiles.uvGraph !== false && uvTrendData && uvTrendData.length >= 2 ? (
             <div className="flex flex-col gap-2 mt-2 pt-4 border-t border-app-border/30">
               <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.1em] text-app-text-dim/60">
                 <span>12-Hour Trend</span>
@@ -510,9 +518,8 @@ export default function WeatherDetails({ weather, settings }: WeatherDetailsProp
               <div 
                 key={i} 
                 className={cn(
-                  "px-4 py-6 flex flex-col justify-between bg-app-surface backdrop-blur-[32px] border border-app-border rounded-[28px] h-[140px] shadow-lg transition-all duration-300 hover:bg-app-text/[0.05]",
-                  isFullWidth ? "col-span-2" : "col-span-1",
-                  ('isWind' in detail) && "py-5"
+                  "px-[14px] py-5 flex flex-col justify-between bg-app-surface backdrop-blur-[32px] border border-app-border rounded-[28px] h-[132px] shadow-lg transition-all duration-300 hover:bg-app-text/[0.05]",
+                  isFullWidth ? "col-span-2 text-left" : "col-span-1"
                 )}
               >
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -520,32 +527,32 @@ export default function WeatherDetails({ weather, settings }: WeatherDetailsProp
                     <WeatherIcon 
                       name={detail.icon as any} 
                       className={cn(
-                        "w-5 h-5",
+                        "w-4.5 h-4.5",
                         settings.iconStyle === 'coloured' ? "" : "text-app-text"
                       )} 
                       strokeWidth={2.2} 
                       style={settings.iconStyle === 'coloured' ? 'coloured' : 'outline'} 
                     />
                   </div>
-                  <span className="text-[11px] font-bold uppercase text-app-text-dim break-all leading-none">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-dim truncate leading-none">
                     {detail.label}
                   </span>
                 </div>
                 
                 <div className="flex items-center justify-between w-full">
                   <div className="flex flex-col gap-0.5">
-                    <div className="flex items-baseline gap-1.5 overflow-hidden">
-                      <span className="text-[34px] font-medium tracking-tighter text-app-text leading-none">
+                    <div className="flex items-baseline gap-1 overflow-hidden">
+                      <span className="text-[28px] font-semibold tracking-tighter text-app-text leading-none">
                         {detail.value}
                       </span>
                       {detail.unit && (
-                        <span className="text-[14px] font-bold text-app-text-dim tracking-tight">
+                        <span className="text-[12px] font-bold text-app-text-dim tracking-tight">
                           {detail.unit}
                         </span>
                       )}
                     </div>
                     {('desc' in detail) && detail.desc && (
-                      <span className="text-[11px] text-app-text-dim font-semibold tracking-tight truncate">
+                      <span className="text-[10px] text-app-text-dim font-semibold tracking-tight truncate">
                         {detail.desc}
                       </span>
                     )}

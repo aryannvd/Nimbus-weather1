@@ -184,7 +184,7 @@ export function HourlyForecast({ weather, settings }: ForecastProps) {
   hourlyData.sort((a, b) => a.time.getTime() - b.time.getTime());
 
   return (
-    <div className="relative -mx-6 hourly-forecast">
+    <div className="relative -mx-6 hourly-forecast" data-no-swipe>
       <div className="flex items-center justify-between px-6 mb-3">
         <span className="text-[11px] font-bold tracking-[0.15em] uppercase text-app-text-dim">Hourly Forecast</span>
       </div>
@@ -214,6 +214,7 @@ export function HourlyForecast({ weather, settings }: ForecastProps) {
           }
         }}
         className="flex gap-3 overflow-x-auto no-scrollbar pb-4 px-6 snap-x snap-mandatory scroll-smooth will-change-transform"
+        data-no-swipe
       >
         {hourlyData.length > 0 ? hourlyData.map((item, i) => {
           if (item.type === 'sunrise' || item.type === 'sunset') {
@@ -229,8 +230,8 @@ export function HourlyForecast({ weather, settings }: ForecastProps) {
                   "rounded-[30px] border border-app-border bg-amber-500/5 backdrop-blur-3xl"
                 )}
               >
-                <span className="text-[11px] font-medium tracking-tight text-app-text-dim">
-                  {formatLocalTime(item.time, weather.timezone, 'time', settings.timeFormat)}
+                <span className="text-[10px] font-medium tracking-tight text-app-text-dim">
+                  {formatLocalTime(item.time, weather.timezone, 'time', settings.timeFormat).replace(/\s*(?:AM|PM|am|pm)/gi, '').trim()}
                 </span>
                 
                 <div className="flex flex-col items-center gap-1">
@@ -242,7 +243,7 @@ export function HourlyForecast({ weather, settings }: ForecastProps) {
                   />
                 </div>
 
-                <span className="text-[12px] font-bold text-app-text uppercase tracking-wider">
+                <span className="text-[9px] font-bold text-app-text uppercase tracking-wider">
                   {isSunrise ? 'Sunrise' : 'Sunset'}
                 </span>
               </motion.div>

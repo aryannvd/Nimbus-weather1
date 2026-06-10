@@ -102,6 +102,7 @@ export interface Settings {
   alertMorningSummary: boolean;
   alertNightSummary: boolean;
   oneSignalPlayerId?: string;
+  backgroundGlow?: 'on' | 'off' | 'static';
   enabledTiles?: {
     aqi: boolean;
     uv: boolean;
@@ -109,6 +110,11 @@ export interface Settings {
     visibility: boolean;
     precipitation: boolean;
     wind: boolean;
+    forecast?: boolean;
+    sunMoon?: boolean;
+    aqiGraph?: boolean;
+    aqiPollutant?: boolean;
+    uvGraph?: boolean;
   };
 }
 

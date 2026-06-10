@@ -1,6 +1,4 @@
-Nimbus Black
-
-# Nimbus Weather🌤️
+# Nimbus Black🌤️
 ### *Real-time weather, beautifully simple.* 
 
 ![Static Badge](https://img.shields.io/badge/License-MIT-green?style=flat-square)

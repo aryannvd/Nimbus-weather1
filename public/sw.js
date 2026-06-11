@@ -62,6 +62,12 @@ self.addEventListener("fetch", e => {
           return res;
         });
       })
-      .catch(() => caches.match("/index.html"))
+      .catch(() => {
+        if (e.request.mode === "navigate" || (e.request.headers.get("accept") && e.request.headers.get("accept").includes("text/html"))) {
+          return caches.match("/index.html");
+        }
+        // Return a basic error response or just let the browser handle it
+        return new Response("Resource offline", { status: 503, statusText: "Offline" });
+      })
   );
 });

@@ -174,7 +174,10 @@ export default function WeatherRadarMap({ activeLocation, onClose, hapticEnabled
         </div>
 
         {/* MAP PANEL */}
-        <div className="flex-1 w-full relative rounded-[28px] overflow-hidden border border-app-border bg-[#08080a] shadow-2xl group flex flex-col justify-center items-center">
+        <div 
+          className="flex-1 w-full relative rounded-[28px] overflow-hidden border border-app-border bg-[#08080a] shadow-2xl group flex flex-col justify-center items-center"
+          style={{ touchAction: 'none' }}
+        >
           {/* Subtle meteorological coordinate blueprint grid */}
           <div className="absolute inset-0 opacity-15 bg-[linear-gradient(rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.06)_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
           
@@ -199,7 +202,8 @@ export default function WeatherRadarMap({ activeLocation, onClose, hapticEnabled
               <iframe
                 id="radar-iframe"
                 src={embedUrl}
-                className="w-full h-full border-0 rounded-[28px] select-all relative z-10"
+                className="w-full h-full border-0 rounded-[28px] select-none relative z-10"
+                style={{ touchAction: 'none' }}
                 allowFullScreen
                 onLoad={() => setIframeLoading(false)}
               />

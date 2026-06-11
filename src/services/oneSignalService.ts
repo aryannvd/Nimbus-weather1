@@ -120,14 +120,16 @@ safeOneSignal(async (OneSignal: any) => {
 
   console.log("OneSignal initialized");
 
-  // Store subscription state
-  const isSubscribed = await OneSignal.User.PushSubscription.optedIn;
+  // Store subscription state safely
+  const isSubscribed = await OneSignal.User?.PushSubscription?.optedIn ?? false;
   console.log("Push subscribed:", isSubscribed);
 
-  // Sync tags with saved settings on initialization
+  // Sync tags with saved settings on initialization safely
   try {
-    OneSignal.User.addTag("morning_summary", NotifSettings.morningEnabled ? "true" : "false");
-    OneSignal.User.addTag("night_summary", NotifSettings.nightEnabled ? "true" : "false");
+    if (OneSignal.User?.addTag) {
+      OneSignal.User.addTag("morning_summary", NotifSettings.morningEnabled ? "true" : "false");
+      OneSignal.User.addTag("night_summary", NotifSettings.nightEnabled ? "true" : "false");
+    }
   } catch (e) {
     console.warn("Could not set initial status tags:", e);
   }
@@ -232,7 +234,9 @@ export const wireMorningToggle = async (enabled: boolean, showToast?: (msg: stri
 
   safeOneSignal(async (OneSignal: any) => {
     try {
-      OneSignal.User.addTag("morning_summary", enabled ? "true" : "false");
+      if (OneSignal.User?.addTag) {
+        OneSignal.User.addTag("morning_summary", enabled ? "true" : "false");
+      }
     } catch (e) {
       console.warn("Failed to set morning tag:", e);
     }
@@ -249,7 +253,9 @@ export const wireNightToggle = async (enabled: boolean, showToast?: (msg: string
 
   safeOneSignal(async (OneSignal: any) => {
     try {
-      OneSignal.User.addTag("night_summary", enabled ? "true" : "false");
+      if (OneSignal.User?.addTag) {
+        OneSignal.User.addTag("night_summary", enabled ? "true" : "false");
+      }
     } catch (e) {
       console.warn("Failed to set night tag:", e);
     }

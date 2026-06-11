@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { RawIcons } from './WeatherIcons';
 import { cn } from '../lib/utils';
+import { Haptic } from '../lib/haptics';
 
 interface WeatherAlert {
   id: string;
@@ -12,11 +13,18 @@ interface WeatherAlert {
 
 interface AlertsDisplayProps {
   alerts: WeatherAlert[];
+  hapticEnabled?: boolean;
   onDismiss: (id: string) => void;
 }
 
-export default function AlertsDisplay({ alerts, onDismiss }: AlertsDisplayProps) {
+export default function AlertsDisplay({ alerts, hapticEnabled = true, onDismiss }: AlertsDisplayProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  useEffect(() => {
+    if (alerts.length > 0) {
+      Haptic.medium(hapticEnabled);
+    }
+  }, [alerts.length, hapticEnabled]);
 
   if (alerts.length === 0) return null;
 
@@ -28,14 +36,24 @@ export default function AlertsDisplay({ alerts, onDismiss }: AlertsDisplayProps)
     }
   };
 
+  const containerHeight = isExpanded 
+    ? 'auto' 
+    : (alerts.length === 1 
+        ? 'auto' 
+        : (alerts.length === 2 ? '112px' : '124px')
+      );
+
   return (
     <div 
       className={cn(
         "w-full px-6 transition-all duration-300 ease-in-out cursor-pointer",
-        isExpanded ? "space-y-3 mb-8" : "relative mb-14"
+        isExpanded ? "space-y-3 mb-2" : "relative mb-2"
       )}
       onClick={handleToggle}
-      style={{ minHeight: isExpanded ? 'auto' : '108px' }}
+      style={{ 
+        height: containerHeight,
+        minHeight: containerHeight 
+      }}
     >
       <AnimatePresence mode="popLayout">
         {alerts.map((alert, index) => {
@@ -162,22 +180,6 @@ export default function AlertsDisplay({ alerts, onDismiss }: AlertsDisplayProps)
           );
         })}
       </AnimatePresence>
-      
-      {/* Show All / Show Less controls matching the iOS design reference */}
-      {alerts.length > 1 && (
-        <div className={cn("flex justify-center relative z-30 transition-all duration-300", isExpanded ? "mt-4" : "mt-12")}>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsExpanded(!isExpanded);
-            }}
-            className="flex items-center gap-1 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-[11px] font-bold text-white/60 hover:text-white transition-all active:scale-95 uppercase tracking-wider"
-          >
-            <span>{isExpanded ? 'Show Less' : 'Show All'}</span>
-            <RawIcons.ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-300 ml-1", isExpanded && "rotate-180")} />
-          </button>
-        </div>
-      )}
     </div>
   );
 }

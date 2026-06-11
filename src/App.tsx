@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { formatTemp } from './lib/units';
 import { Location, WeatherData, WeatherState, Settings } from './types';
-import { fetchWeather, fetchWeatherBulk, getMoonPhaseInfo, getCurrentHourIndex, reverseGeocode, getCurrentWeatherState, getAQIDataWithFallback, getDataAgeHours, getAQIFromCacheOrLive } from './services/weatherService';
+import { fetchWeather, fetchWeatherBulk, getMoonPhaseInfo, getCurrentHourIndex, reverseGeocode, getCurrentWeatherState, getAQIDataWithFallback, getDataAgeHours, getAQIFromCacheOrLive, fetchIPLocation } from './services/weatherService';
 import { getCachedWeatherData, saveWeatherData, STORAGE_KEYS, getCityKey, CACHE_EXPIRY } from './lib/storage';
 import { initGestures } from './lib/gestures';
 import WeatherSkeleton from './components/WeatherSkeleton';
@@ -696,7 +696,7 @@ export default function App() {
     showRefreshSpinner();
     try {
       const locations = stateRef.current.locations;
-      await loadWeatherBatch(locations);
+      await loadWeatherBatch(locations, 0, true);
       localStorage.setItem("last_refresh", Date.now().toString());
     } catch (e) {
       console.warn("Auto refresh failed:", e);
@@ -950,13 +950,7 @@ export default function App() {
   };
 
   const fetchCurrentLocation = async (isBackground = false) => {
-    // STEP 1 — Check support
-    if (!navigator.geolocation) {
-      console.warn("Geolocation not supported by device");
-      return null;
-    }
-
-    // STEP 2 — Show loading indicator
+    // Show loading indicator
     if (!isBackground) {
       showLocationIndicator("getting");
     } else {
@@ -965,36 +959,109 @@ export default function App() {
 
     LocationState.isLoading = true;
 
-    // STEP 3 — Get coordinates
+    // We will try GPS, but if it fails, is denied, or takes too long, we will use IP-based geolocation!
+    const runIpFallback = async () => {
+      console.log("[fetchCurrentLocation] Running IP Location Fallback...");
+      try {
+        const ipLoc = await fetchIPLocation();
+        if (ipLoc) {
+          const { lat, lon, cityName, country, timezone } = ipLoc;
+          const moved = hasLocationChanged(lat, lon);
+
+          if (!moved && LocationState.hasLocation && LocationState.cityName === cityName) {
+            hideLocationIndicator();
+            hideMinimalIndicator();
+            LocationState.isLoading = false;
+            return { lat, lon, cityName };
+          }
+
+          const wasFirstTime = !stateRef.current.locations.some(loc => loc.isCurrentLocation);
+
+          if (wasFirstTime) {
+            LocationState.hasLocation = true;
+            LocationState.lat         = lat;
+            LocationState.lon         = lon;
+            LocationState.cityName    = cityName;
+            LocationState.lastUpdated = Date.now();
+            LocationState.save();
+            LocationState.isLoading   = false;
+
+            await addCurrentLocationPage(cityName, lat, lon);
+          } else {
+            const success = await replaceCurrentLocationPage(cityName, lat, lon, country);
+            LocationState.isLoading = false;
+            hideLocationIndicator();
+            hideMinimalIndicator();
+
+            if (success) {
+              LocationState.hasLocation = true;
+              LocationState.lat         = lat;
+              LocationState.lon         = lon;
+              LocationState.cityName    = cityName;
+              LocationState.lastUpdated = Date.now();
+              LocationState.save();
+
+              showMinimalIndicator("LOCATION UPDATED");
+              setTimeout(hideMinimalIndicator, 2500);
+            }
+          }
+
+          return { lat, lon, cityName };
+        }
+      } catch (err) {
+        console.warn("IP Location Fallback failed:", err);
+      }
+      
+      LocationState.isLoading = false;
+      hideLocationIndicator();
+      hideMinimalIndicator();
+      return null;
+    };
+
+    if (!navigator.geolocation) {
+      console.warn("Geolocation not supported by device, falling back to IP Geolocation.");
+      return await runIpFallback();
+    }
+
     return new Promise<{ lat: number; lon: number; cityName: string } | null>((resolve) => {
+      let resolvedOrFailed = false;
+
+      // Set a backup timeout: if standard GPS takes > 4 seconds, fallback to IP Geolocation immediately!
+      const gpsTimeoutToken = setTimeout(async () => {
+        if (!resolvedOrFailed) {
+          resolvedOrFailed = true;
+          console.warn("GPS request taking too long (>4s). Falling back to IP Geolocation.");
+          const res = await runIpFallback();
+          resolve(res);
+        }
+      }, 4000);
+
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
-          const { latitude, longitude } = pos.coords;
+          if (resolvedOrFailed) return;
+          resolvedOrFailed = true;
+          clearTimeout(gpsTimeoutToken);
 
-          // Check if location actually changed
+          const { latitude, longitude } = pos.coords;
           const moved = hasLocationChanged(latitude, longitude);
 
-          // STEP 4 — Reverse geocode to city name
           const resolved = await reverseGeocode(latitude, longitude);
-          
           let cityName = resolved?.name;
           if (!cityName || cityName === "Current Location") {
             cityName = getTimezoneCity();
           }
 
           if (!moved && LocationState.hasLocation && LocationState.cityName === cityName) {
-            // Same location — quiet update
             hideLocationIndicator();
             hideMinimalIndicator();
             LocationState.isLoading = false;
-            resolve(null);
+            resolve({ lat: latitude, lon: longitude, cityName });
             return;
           }
 
           const wasFirstTime = !stateRef.current.locations.some(loc => loc.isCurrentLocation);
 
           if (wasFirstTime) {
-            // STEP 5 — Update state
             LocationState.hasLocation = true;
             LocationState.lat         = latitude;
             LocationState.lon         = longitude;
@@ -1003,10 +1070,8 @@ export default function App() {
             LocationState.save();
             LocationState.isLoading   = false;
 
-            // STEP 6 — Update UI
             await addCurrentLocationPage(cityName, latitude, longitude);
           } else {
-            // STEP 6 — Transactional Update (fetch weather first, then apply page changes)
             const success = await replaceCurrentLocationPage(cityName, latitude, longitude, resolved?.country || "Nearby");
             LocationState.isLoading = false;
             hideLocationIndicator();
@@ -1031,20 +1096,14 @@ export default function App() {
             cityName 
           });
         },
-        (err) => {
-          LocationState.isLoading = false;
-          hideLocationIndicator();
-          hideMinimalIndicator();
-
-          if (err.code === 1) {
-            // Permission denied by user
-            stopLocationRefresh();
-            removeCurrentLocationPage();
-            showPermissionDeniedNotice();
-          } else {
-            console.warn("Location error:", err.message);
-          }
-          resolve(null);
+        async (err) => {
+          if (resolvedOrFailed) return;
+          resolvedOrFailed = true;
+          clearTimeout(gpsTimeoutToken);
+          
+          console.warn("GPS error encountered:", err.message, "Falling back to IP Geolocation.");
+          const res = await runIpFallback();
+          resolve(res);
         },
         {
           enableHighAccuracy: false,
@@ -1055,6 +1114,19 @@ export default function App() {
     });
   };
 
+  const isLocationPermissionOn = async (): Promise<boolean> => {
+    if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
+      try {
+        const result = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+        return result.state === 'granted';
+      } catch (err) {
+        console.warn("Permissions API query failed:", err);
+        return false;
+      }
+    }
+    return false;
+  };
+
   const startLocationRefresh = () => {
     // Clear any existing interval
     stopLocationRefresh();
@@ -1063,7 +1135,12 @@ export default function App() {
     locationRefreshIntervalRef.current = setInterval(async () => {
       if (LocationState.hasLocation) {
         console.log("Background location refresh...");
-        await fetchCurrentLocation(true);
+        const isGranted = await isLocationPermissionOn();
+        if (isGranted) {
+          await fetchCurrentLocation(true);
+        } else {
+          console.log("Location permission is off, skipping background refresh update.");
+        }
       }
     }, 10 * 60 * 1000);
 
@@ -1079,26 +1156,48 @@ export default function App() {
   };
 
   const startLocationSystem = async () => {
-    // Restore previous location from cache
+    const isFirstTime = !localStorage.getItem('location_first_prompt_done');
     const hasSaved = LocationState.load();
 
-    if (hasSaved && LocationState.cityName && LocationState.cityName !== "Current Location") {
-      // Show saved location page instantly since we successfully geocoded it before
-      addCurrentLocationPageFromCache();
-
-      // Then silently check for location change
-      setTimeout(async () => {
-        await fetchCurrentLocation(true);
-      }, 2000);
-
-      // Start 10 min refresh
-      startLocationRefresh();
-
-    } else {
-      // By default, turn it on! Request the location on startup.
-      await fetchCurrentLocation(false);
-      if (LocationState.hasLocation) {
+    if (isFirstTime) {
+      // First time downloading/launching the app: prompt user
+      localStorage.setItem('location_first_prompt_done', 'true');
+      
+      if (hasSaved && LocationState.cityName && LocationState.cityName !== "Current Location") {
+        addCurrentLocationPageFromCache();
+        setTimeout(async () => {
+          await fetchCurrentLocation(true);
+        }, 2000);
         startLocationRefresh();
+      } else {
+        await fetchCurrentLocation(false);
+        if (LocationState.hasLocation) {
+          startLocationRefresh();
+        }
+      }
+    } else {
+      // Subsequent openings: Just scan if the location is on/off
+      const isGranted = await isLocationPermissionOn();
+
+      if (isGranted) {
+        if (hasSaved && LocationState.cityName && LocationState.cityName !== "Current Location") {
+          addCurrentLocationPageFromCache();
+          setTimeout(async () => {
+            await fetchCurrentLocation(true);
+          }, 2000);
+          startLocationRefresh();
+        } else {
+          await fetchCurrentLocation(true);
+          if (LocationState.hasLocation) {
+            startLocationRefresh();
+          }
+        }
+      } else {
+        // "If off do not update the location and do not ask for the location access too."
+        console.log("Location permission is currently off. Skipping update and prompt.");
+        if (hasSaved && LocationState.cityName && LocationState.cityName !== "Current Location") {
+          addCurrentLocationPageFromCache();
+        }
       }
     }
   };
@@ -1164,14 +1263,80 @@ export default function App() {
     return () => clearInterval(intervalId);
   }, []);
 
+  // Midnight auto-update mechanism
+  useEffect(() => {
+    const checkMidnightUpdate = async () => {
+      const now = new Date();
+      const currentHour = now.getHours();
+      
+      // Check if current hour is midnight (00:00 to 00:59)
+      if (currentHour === 0) {
+        const todayDateString = now.toDateString(); // e.g., "Thu Jun 11 2026"
+        const lastUpdateDateString = localStorage.getItem('last_midnight_update_date');
+        
+        // If we haven't performed the update today, trigger it
+        if (lastUpdateDateString !== todayDateString) {
+          console.log("[Midnight Auto-Update] Triggering auto-update to fetch latest Vercel version...");
+          
+          // Set key immediately so we do not trigger multiple updates in parallel
+          localStorage.setItem('last_midnight_update_date', todayDateString);
+          
+          // Ensure all local states are explicitly saved to localStorage 
+          try {
+            localStorage.setItem('app_locations', JSON.stringify(stateRef.current.locations));
+            localStorage.setItem('app_active_index', String(stateRef.current.activeLocationIndex));
+            localStorage.setItem('app_settings', JSON.stringify(stateRef.current.settings));
+            LocationState.save();
+          } catch (err) {
+            console.error("Error saving state before reload:", err);
+          }
+
+          // Trigger Service Worker updates to fetch the latest assets from Vercel
+          if ('serviceWorker' in navigator) {
+            try {
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              for (const registration of registrations) {
+                await registration.update();
+              }
+            } catch (swErr) {
+              console.warn("ServiceWorker update failed:", swErr);
+            }
+          }
+
+          // Fetch front-end index.html with a cache-buster query parameter to force CDN/Vercel update
+          try {
+            await fetch('/index.html?cb=' + Date.now(), { cache: 'no-store' });
+          } catch (fetchErr) {
+            console.warn("Cache-buster fetch failed:", fetchErr);
+          }
+
+          // Force fresh page reload to load the latest fetched js/css assets
+          console.log("[Midnight Auto-Update] Reloading application now...");
+          window.location.reload();
+        }
+      }
+    };
+
+    // Run custom check on mount
+    checkMidnightUpdate();
+
+    // Check every 5 minutes
+    const midnightInterval = setInterval(checkMidnightUpdate, 5 * 60 * 1000);
+    return () => clearInterval(midnightInterval);
+  }, []);
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         if (LocationState.hasLocation) {
           const age = Date.now() - (LocationState.lastUpdated || 0);
-          // If older than 5 minutes — check location
+          // If older than 5 minutes — check location if permission is granted
           if (age > 5 * 60 * 1000) {
-            fetchCurrentLocation(true);
+            isLocationPermissionOn().then(isGranted => {
+              if (isGranted) {
+                fetchCurrentLocation(true);
+              }
+            });
           }
         }
       }
@@ -1484,6 +1649,7 @@ export default function App() {
 
     // Direct performance gain: pause heavy animations during visual transition slide
     killAnimations();
+    setHeaderVisible(true);
 
     const city = state.locations[newIndex];
     if (!city) return;
@@ -1720,7 +1886,7 @@ export default function App() {
       if (navigator.onLine) {
         try {
           for (let i = 0; i < locations.length; i++) {
-            await loadWeather(locations[i], startIndex + i);
+            await loadWeather(locations[i], startIndex + i, forceRefresh);
             // Slight delay to avoid rate limiting
             if (i < locations.length - 1) {
               await new Promise(resolve => setTimeout(resolve, 800));
@@ -2148,6 +2314,7 @@ export default function App() {
     setIsRefreshing(true);
     Haptic.medium(state.settings.hapticEnabled);
     
+    const startTime = Date.now();
     try {
       await refreshWeather();
       Haptic.success(state.settings.hapticEnabled);
@@ -2155,7 +2322,9 @@ export default function App() {
       console.warn("Manual refresh failed:", e);
       Haptic.warning(state.settings.hapticEnabled);
     } finally {
-      setTimeout(() => setIsRefreshing(false), 800);
+      const elapsed = Date.now() - startTime;
+      const remainingTime = Math.max(0, 800 - elapsed);
+      setTimeout(() => setIsRefreshing(false), remainingTime);
     }
   };
 
@@ -2384,6 +2553,26 @@ export default function App() {
 
   const isAnyModalOpen = state.showSettings || showCityManager || showRadarMap || showSearch;
 
+  useEffect(() => {
+    if (isAnyModalOpen) {
+      document.body.style.overflow = 'hidden';
+      document.body.style.height = '100dvh';
+      document.documentElement.style.overflow = 'hidden';
+      document.documentElement.style.height = '100dvh';
+    } else {
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.height = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.height = '';
+    };
+  }, [isAnyModalOpen]);
+
   const currentCode = activeWeather?.current?.weatherCode || 0;
   const currentIsNight = activeWeather ? isNightHour(
     Date.now(),
@@ -2475,17 +2664,15 @@ export default function App() {
 
         {state.locations.length > 0 && (
           <motion.div 
-            className="w-full h-32 relative"
+            className="w-full h-32 relative pointer-events-none"
             initial={false}
             animate={{
-              y: (headerVisible && !isSwiping) ? 0 : -120,
-              opacity: (headerVisible && !isSwiping) ? 1 : 0,
-              pointerEvents: (headerVisible && !isSwiping) ? 'auto' : 'none' as any,
+              y: headerVisible ? 0 : -30,
+              opacity: headerVisible ? 1 : 0,
             }}
             transition={{ 
-              duration: 0.12, 
-              ease: [0.25, 0.46, 0.45, 0.94],
-              opacity: { duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 } // Instant hide during swipe
+              duration: 0.35, 
+              ease: [0.25, 0.46, 0.45, 0.94]
             }}
           >
             <motion.div className="absolute left-6 top-8 pointer-events-auto">
@@ -2496,15 +2683,16 @@ export default function App() {
                   setShowRadarMap(true);
                   pushPanel(() => setShowRadarMap(false), 'radarmap');
                 }}
-                className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-app-text shadow-xl active:scale-95 transition-all"
+                className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-app-text shadow-xl active:scale-97 transition-all lg:hover:scale-105 pointer-events-auto"
                 initial={false}
                 animate={{
-                  opacity: state.showSettings || showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 0 : 1,
-                  pointerEvents: state.showSettings || showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 'none' : 'auto',
+                  opacity: state.showSettings || showCityManager || showRadarMap ? 0 : 1,
+                  pointerEvents: state.showSettings || showCityManager || showRadarMap ? 'none' : 'auto',
                   scale: state.showSettings || showCityManager || showRadarMap ? 0.8 : 1,
                 }}
                 transition={{ 
-                  duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 
+                  duration: 0.3,
+                  ease: [0.25, 0.46, 0.45, 0.94]
                 }}
               >
                 <Icons.Map className="w-5 h-5 text-app-text-dim hover:text-app-text transition-colors" />
@@ -2516,40 +2704,20 @@ export default function App() {
               <motion.button 
                 id="settings-btn"
                 onClick={toggleSettings}
-                className={`group active:scale-95 transition-all flex items-center justify-center ${
-                  state.showSettings ? 'h-12 px-1' : 'w-12 h-12'
-                }`}
+                className="group active:scale-97 transition-all flex items-center justify-center w-12 h-12"
                 animate={{
-                  opacity: state.showSettings || showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 0 : 1,
-                  pointerEvents: state.showSettings || showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 'none' : 'auto',
+                  opacity: state.showSettings || showCityManager || showRadarMap ? 0 : 1,
+                  pointerEvents: state.showSettings || showCityManager || showRadarMap ? 'none' : 'auto',
                   scale: state.showSettings || showCityManager || showRadarMap ? 0.8 : 1,
                 }}
-                transition={{ duration: (isSwiping || isSwipeCommitted) ? 0 : 0.12 }}
+                transition={{ 
+                  duration: 0.3,
+                  ease: [0.25, 0.46, 0.45, 0.94]
+                }}
               >
-                <AnimatePresence mode="wait">
-                  {state.showSettings ? (
-                    <motion.div
-                      key="back"
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 10 }}
-                      className="flex items-center text-app-text gap-1 pr-1"
-                    >
-                      <Icons.ChevronLeft className="w-6 h-6" strokeWidth={2.5} />
-                      <span className="font-bold text-[14px]">BACK</span>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="settings"
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.8 }}
-                      className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-app-text-dim group-hover:text-app-text transition-colors shadow-xl"
-                    >
-                      <Icons.Settings2 className="w-5 h-5" />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                <div className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-app-text-dim group-hover:text-app-text transition-colors shadow-xl lg:hover:scale-105 pointer-events-auto">
+                  <Icons.Settings2 className="w-5 h-5" />
+                </div>
               </motion.button>
             </motion.div>
 
@@ -2557,36 +2725,36 @@ export default function App() {
 
             {/* City Name & Pagination - Center */}
             <div className="absolute top-8 flex flex-col items-center pointer-events-none mt-2" style={{ left: '50%', transform: 'translateX(-50%)' }}>
-              {state.locations.length > 0 && (
-                <motion.div 
-                  key="city-header-persistent"
-                  initial={{ opacity: 0 }}
-                  animate={{ 
-                    opacity: state.showSettings || showCityManager || showRadarMap || isSwiping || isSwipeCommitted ? 0 : 1,
-                  }}
-                  transition={{ duration: 0.15 }}
-                  className="flex flex-col items-center justify-center"
-                >
-                  <div className="flex items-center justify-center relative pointer-events-auto select-none gap-1.5">
-                    <div className="flex items-center gap-1.5">
-                      {activeLocation?.isCurrentLocation && <span id="location-pin-icon" className="text-[14px]">📌</span>}
-                      <span id="city-name" className="text-[17px] font-semibold text-white/95">{activeLocation?.name || 'Loading...'}</span>
+              <AnimatePresence mode="popLayout">
+                {state.locations.length > 0 && !state.showSettings && !showCityManager && !showRadarMap && (
+                  <motion.div 
+                    key={`city-header-${state.activeLocationIndex}`}
+                    initial={{ opacity: 0, scale: 0.96, y: 3 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.96, y: -3 }}
+                    transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
+                    className="flex flex-col items-center justify-center"
+                  >
+                    <div className="flex items-center justify-center relative pointer-events-auto select-none gap-1.5">
+                      <div className="flex items-center gap-1.5">
+                        {activeLocation?.isCurrentLocation && <span id="location-pin-icon" className="text-[14px]">📌</span>}
+                        <span id="city-name" className="text-[17px] font-semibold text-white/95">{activeLocation?.name || 'Loading...'}</span>
+                      </div>
+                      <div className="absolute left-full ml-1.5 flex items-center justify-center">
+                        <button 
+                          onClick={() => {
+                            Haptic.medium(state.settings.hapticEnabled);
+                            setShowCityManager(true);
+                            pushPanel(() => setShowCityManager(false), 'citymanager');
+                          }}
+                          className="text-white/60 hover:text-white active:scale-90 transition-all duration-150 cursor-pointer focus:outline-none flex items-center justify-center p-1"
+                          title="Edit Cities"
+                        >
+                          <Icons.Pencil className="w-3.5 h-3.5" strokeWidth={2.2} />
+                        </button>
+                      </div>
                     </div>
-                    <div className="absolute left-full ml-1.5 flex items-center justify-center">
-                      <button 
-                        onClick={() => {
-                          Haptic.medium(state.settings.hapticEnabled);
-                          setShowCityManager(true);
-                          pushPanel(() => setShowCityManager(false), 'citymanager');
-                        }}
-                        className="text-white/60 hover:text-white active:scale-90 transition-all duration-150 cursor-pointer focus:outline-none flex items-center justify-center p-1"
-                        title="Edit Cities"
-                      >
-                        <Icons.Pencil className="w-3.5 h-3.5" strokeWidth={2.2} />
-                      </button>
-                    </div>
-                  </div>
-                    
+                      
                     {isOffline && (
                       <motion.div 
                         initial={{ opacity: 0, scale: 0.8 }}
@@ -2632,6 +2800,7 @@ export default function App() {
                     </div>
                   </motion.div>
                 )}
+              </AnimatePresence>
             </div>
           </motion.div>
         )}
@@ -2800,6 +2969,7 @@ export default function App() {
             >
               <AlertsDisplay 
                 alerts={activeAlerts} 
+                hapticEnabled={state.settings.hapticEnabled}
                 onDismiss={(id) => {
                   Haptic.light(state.settings.hapticEnabled);
                   setDismissedAlerts(prev => ({ ...prev, [id]: Date.now() }));
@@ -2983,46 +3153,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {(isOffline || isWeakNetwork) && (
-          <motion.div 
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 30 }}
-            transition={{ type: "spring", damping: 25, stiffness: 350 }}
-            className="fixed bottom-[32px] left-1/2 -translate-x-1/2 z-[220] px-4 py-3 w-[calc(100%-48px)] max-w-[342px] bg-[#0c0c0e]/95 border border-white/10 backdrop-blur-3xl rounded-[20px] flex items-center justify-between shadow-[0_12px_40px_rgba(255,165,0,0.06)] pointer-events-auto"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center relative border border-white/5">
-                <Icons.CloudOff className="w-4 h-4 text-orange-400" />
-                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-[11px] font-bold text-white uppercase tracking-wider leading-none">
-                  {isOffline ? "No Connection" : "Weak Connection"}
-                </span>
-                <span className="text-[12px] text-white/50 leading-tight mt-1 whitespace-nowrap truncate w-[160px] min-[360px]:w-[190px]">
-                  {isOffline ? "Offline • Showing cached weather" : "Weak internet connection detected"}
-                </span>
-              </div>
-            </div>
-            
-            <button 
-              onClick={() => {
-                Haptic.light(state.settings.hapticEnabled);
-                if (isOffline) {
-                  loadWeatherBatch(state.locations);
-                } else {
-                  setIsWeakNetwork(false);
-                }
-              }}
-              className="px-3 py-1.5 bg-white text-black border border-white/10 rounded-full text-[9px] font-bold uppercase tracking-wider transition-all duration-150 active:scale-95 cursor-pointer select-none shrink-0"
-            >
-              {isOffline ? "Retry" : "Dismiss"}
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
     </div>
   );
 }

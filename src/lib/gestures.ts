@@ -17,7 +17,7 @@ export function initGestures() {
   const isInteractive = (el: HTMLElement | null): boolean => {
     if (!el) return false;
     return !!el.closest(
-      'input, button, select, textarea, [data-no-swipe]'
+      'input, button, select, textarea, [data-no-swipe], .subview-page, .sources-page, .tiles-page'
     );
   };
 
@@ -70,7 +70,8 @@ export function initGestures() {
     }
 
     // Handle pull indicator with requestAnimationFrame
-    if (axis === "v" && dy > 0 && window.scrollY <= 5) {
+    const inScrollablePanel = !!(e.target as HTMLElement).closest('.settings-panel, .subview-page, .sources-page, .tiles-page');
+    if (axis === "v" && dy > 0 && window.scrollY <= 5 && !inScrollablePanel) {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         const pull = Math.min(dy, 130);
@@ -110,7 +111,8 @@ export function initGestures() {
 
     } else if (axis === "v") {
       // PULL TO REFRESH
-      if (dy >= PULL_THRESHOLD && window.scrollY <= 5) {
+      const inScrollablePanel = !!(e.target as HTMLElement).closest('.settings-panel, .subview-page, .sources-page, .tiles-page');
+      if (dy >= PULL_THRESHOLD && window.scrollY <= 5 && !inScrollablePanel) {
         window.dispatchEvent(new CustomEvent("pull-refresh"));
       }
     }

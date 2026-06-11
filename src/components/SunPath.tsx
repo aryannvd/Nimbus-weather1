@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
-import { motion, useInView, animate, useMotionValue, useTransform } from 'motion/react';
+import { motion, useInView, animate, useMotionValue, useTransform, AnimatePresence } from 'motion/react';
 import { WeatherData, Settings } from '../types';
 import { WeatherIcon, RawIcons } from './WeatherIcons';
 import { format, parseISO, differenceInMinutes } from 'date-fns';
 import { cn } from '../lib/utils';
+import { Haptic } from '../lib/haptics';
 
 interface SunPathProps {
   weather: WeatherData;
@@ -19,15 +20,15 @@ const endX = 290;
 const centerX = (startX + endX) / 2;
 const daylightControlY = horizonY - (2 * curveHeight);
 
-const MoonriseIcon = ({ className }: { className?: string }) => (
+const SunriseIcon = ({ className }: { className?: string }) => (
   <svg 
     viewBox="0 0 24 24" 
     fill="none" 
     stroke="currentColor" 
-    strokeWidth="1.8" 
+    strokeWidth="2.8" 
     strokeLinecap="round" 
     strokeLinejoin="round" 
-    className={cn("text-blue-300", className)}
+    className={cn("text-amber-400", className)}
   >
     <path d="M2 21h20" />
     <path d="M10 7a5 5 0 0 0 5 5 5 5 0 1 1-5-5Z" />
@@ -36,15 +37,15 @@ const MoonriseIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const MoonsetIcon = ({ className }: { className?: string }) => (
+const SunsetIcon = ({ className }: { className?: string }) => (
   <svg 
     viewBox="0 0 24 24" 
     fill="none" 
     stroke="currentColor" 
-    strokeWidth="1.8" 
+    strokeWidth="2.8" 
     strokeLinecap="round" 
     strokeLinejoin="round" 
-    className={cn("text-blue-300", className)}
+    className={cn("text-amber-400/90", className)}
   >
     <path d="M2 21h20" />
     <path d="M10 7a5 5 0 0 0 5 5 5 5 0 1 1-5-5Z" />
@@ -63,9 +64,18 @@ export default function SunPath({ weather, settings }: SunPathProps) {
   // Motion setup for smooth, path-aligned animation
   const motionProgress = useMotionValue(0);
 
+  // HUD dynamic information overlay state
+  const [showHUD, setShowHUD] = React.useState(false);
+  const hudTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 60000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (hudTimeoutRef.current) {
+        clearTimeout(hudTimeoutRef.current);
+      }
+    };
   }, []);
 
   const iconX = useTransform(motionProgress, (v) => 
@@ -216,6 +226,116 @@ export default function SunPath({ weather, settings }: SunPathProps) {
   cycleProgress = Math.max(0, Math.min(1, cycleElapsed / cycleDuration));
   const isIconVisible = cycleProgress > 0 && cycleProgress < 1;
 
+  // Calculate crisp and precise Daylight and Nightlight durations
+  const daylightDurationMins = Math.max(0, sunsetMinutes - sunriseMinutes);
+  const daylightHours = Math.floor(daylightDurationMins / 60);
+  const daylightMins = Math.round(daylightDurationMins % 60);
+  const daylightDurationStr = `${daylightHours}h ${daylightMins}m`;
+
+  const tomorrowSunriseMinutes = getMinutesFromISO(weather?.daily?.sunrise?.[1] || "") || sunriseMinutes;
+  const nightDurationMins = Math.max(0, (tomorrowSunriseMinutes + 1440) - sunsetMinutes);
+  const nightHours = Math.floor(nightDurationMins / 60);
+  const nightMins = Math.round(nightDurationMins % 60);
+  const nightDurationStr = `${nightHours}h ${nightMins}m`;
+
+  const [isPressed, setIsPressed] = React.useState(false);
+  const [isHovered, setIsHovered] = React.useState(false);
+  const hasAnimatedInRef = React.useRef(false);
+
+  // Stats for the live counting capsule
+  const [hudHours, setHudHours] = React.useState(0);
+  const [hudMins, setHudMins] = React.useState(0);
+
+  // Dynamic count-in animation for HUD duration capsule
+  useEffect(() => {
+    if (showHUD) {
+      const targetHours = isNight ? nightHours : daylightHours;
+      const targetMins = isNight ? nightMins : daylightMins;
+
+      // Snappy and direct digit count-in animation
+      const animH = animate(0, targetHours, {
+        duration: 0.5,
+        ease: "easeOut",
+        onUpdate: (latest) => setHudHours(Math.round(latest))
+      });
+
+      const animM = animate(0, targetMins, {
+        duration: 0.65,
+        ease: "easeOut",
+        onUpdate: (latest) => setHudMins(Math.round(latest))
+      });
+
+      return () => {
+        animH.stop();
+        animM.stop();
+      };
+    } else {
+      setHudHours(0);
+      setHudMins(0);
+    }
+  }, [showHUD, isNight, nightHours, daylightHours, nightMins, daylightMins]);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    
+    // Release pointer capture to prevent pointer lock/stuck-state issues on touch devices
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
+    
+    setIsPressed(true);
+    
+    // Trigger medium haptic feedback
+    Haptic.medium(settings.hapticEnabled);
+    
+    // Toggle HUD display and keep it open during hold
+    setShowHUD(true);
+    if (hudTimeoutRef.current) {
+      clearTimeout(hudTimeoutRef.current);
+      hudTimeoutRef.current = null;
+    }
+
+    // Animate path length fully to 1.0 (draw in from wherever it currently is)
+    animate(motionProgress, 1.0, {
+      duration: 0.6,
+      ease: [0.25, 1, 0.5, 1]
+    });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    if (!isPressed) return;
+    setIsPressed(false);
+    
+    // Trigger subtle release haptic feedback
+    Haptic.light(settings.hapticEnabled);
+
+    // Animate path length back to current cycle progress
+    animate(motionProgress, cycleProgress, {
+      duration: 0.6,
+      ease: [0.25, 1, 0.5, 1]
+    });
+
+    // Auto-dismiss HUD after 3 seconds on release
+    if (hudTimeoutRef.current) {
+      clearTimeout(hudTimeoutRef.current);
+    }
+    hudTimeoutRef.current = setTimeout(() => {
+      setShowHUD(false);
+    }, 3000);
+  };
+
+  const handlePointerLeave = (e: React.PointerEvent) => {
+    setIsHovered(false);
+    if (isPressed) {
+      handlePointerUp(e);
+    }
+  };
+
+  const handlePointerEnter = () => {
+    setIsHovered(true);
+  };
+
   const troughHeight = curveHeight * 0.4;
 
   const daylightArch = `M ${startX} ${horizonY} Q ${centerX} ${daylightControlY} ${endX} ${horizonY}`;
@@ -223,7 +343,8 @@ export default function SunPath({ weather, settings }: SunPathProps) {
   const rightTrough = `M ${endX} ${horizonY} Q ${width - 35} ${horizonY + troughHeight} ${width - 10} ${horizonY + troughHeight}`;
 
   useEffect(() => {
-    if (isInView) {
+    if (isInView && !hasAnimatedInRef.current) {
+      hasAnimatedInRef.current = true;
       animate(motionProgress, cycleProgress, { 
         duration: 2.5, 
         ease: [0.34, 1.56, 0.64, 1] 
@@ -233,6 +354,24 @@ export default function SunPath({ weather, settings }: SunPathProps) {
 
   return (
     <div ref={containerRef} className="w-full px-2 mt-8 mb-4 overflow-hidden relative">
+      {/* Dynamic HUD popup inside the negative space under/around the arc */}
+      <AnimatePresence>
+        {showHUD && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.85, y: 15, x: "-50%" }}
+            animate={{ opacity: 1, scale: 1, y: 0, x: "-50%" }}
+            exit={{ opacity: 0, scale: 0.85, y: 10, x: "-50%" }}
+            transition={{ type: "spring", stiffness: 450, damping: 30 }}
+            className="absolute top-[62px] left-1/2 bg-black/95 backdrop-blur-md px-3.5 py-1 rounded-full border border-white/10 flex items-center gap-1.5 pointer-events-none select-none z-10 shadow-[0_4px_16px_rgba(0,0,0,0.5)]"
+          >
+            <span className={cn("w-1.5 h-1.5 rounded-full animate-pulse", isNight ? "bg-blue-400" : "bg-amber-400")} />
+            <span className="text-[11px] font-semibold text-white tracking-tight">
+              {isNight ? `Night: ${hudHours}h ${hudMins}m` : `Daylight: ${hudHours}h ${hudMins}m`}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="relative w-full h-[150px]">
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible translate-x-0">
           <defs>
@@ -256,16 +395,39 @@ export default function SunPath({ weather, settings }: SunPathProps) {
               <stop offset="100%" stopColor="#2D3B4E" />
             </linearGradient>
 
+            {/* Day Glow Filter (Golden Amber glow, unclipped bounds) */}
+            <filter id="sunGlowFilter" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="8" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+
+            {/* Moon Glow Filter (Lunar Ice Blue glow, unclipped bounds) */}
+            <filter id="moonGlowFilter" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="8" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+
             <clipPath id="horizonClip">
               <rect x="-50" y="-50" width={width + 100} height={horizonY + 50} />
             </clipPath>
 
-            <mask id="iconGap">
+            <mask id="iconGap" maskUnits="userSpaceOnUse">
               <rect x="-50" y="-50" width={width + 100} height={height + 100} fill="white" />
               <motion.circle 
                 cx={iconX}
                 cy={iconY}
-                animate={{ r: isIconVisible ? 18 : 0 }}
+                animate={{ r: (isIconVisible && !isPressed) ? 18 : 0 }}
+                transition={
+                  isPressed 
+                    ? { duration: 0.08 } 
+                    : { delay: 0.55, duration: 0.2 }
+                }
                 fill="black" 
               />
             </mask>
@@ -285,34 +447,90 @@ export default function SunPath({ weather, settings }: SunPathProps) {
 
           {/* Elements ABOVE horizon */}
           <g clipPath="url(#horizonClip)">
-            <g mask="url(#iconGap)">
-              {/* Future Path */}
+            <motion.g
+              className="cursor-pointer"
+              onPointerDown={handlePointerDown}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerLeave}
+              onPointerEnter={handlePointerEnter}
+              onPointerCancel={handlePointerUp}
+              whileHover="hover"
+              whileTap="tap"
+              initial="initial"
+              animate="initial"
+              style={{ touchAction: "none" }}
+            >
+              {/* Thicker, invisible path overlay to dramatically increase hover/tap target area */}
               <path 
                 d={daylightArch}
                 fill="none" 
-                stroke="white" 
-                strokeWidth="4" 
-                strokeLinecap="round"
-                opacity="0.1"
+                stroke="transparent" 
+                strokeWidth="24" 
+                className="cursor-pointer"
               />
 
-              {/* Active Path */}
-              <motion.path 
-                d={daylightArch}
-                fill="none" 
-                stroke={isNight ? "url(#moonNightGradient)" : "url(#sunDayGradient)"} 
-                strokeWidth="5.5" 
-                strokeLinecap="round"
-                style={{ pathLength: motionProgress }}
-              />
-            </g>
+              <g mask="url(#iconGap)">
+                {/* Future Path */}
+                <motion.path 
+                  d={daylightArch}
+                  fill="none" 
+                  stroke="white" 
+                  strokeWidth="4" 
+                  strokeLinecap="round"
+                  variants={{
+                    initial: { strokeOpacity: 0.1, strokeWidth: 4 },
+                    hover: { strokeOpacity: 0.22, strokeWidth: 5 },
+                    tap: { strokeOpacity: 0.28, strokeWidth: 5 }
+                  }}
+                  transition={{ duration: 0.35, ease: "easeOut" }}
+                />
+
+                {/* Glow Backing Path (Smooth, hardware-accelerated fade-out) */}
+                <motion.path 
+                  d={daylightArch}
+                  fill="none" 
+                  stroke={isNight ? "#B3E5FC" : "#FFD600"} 
+                  strokeWidth="7" 
+                  strokeLinecap="round"
+                  filter={isNight ? "url(#moonGlowFilter)" : "url(#sunGlowFilter)"}
+                  style={{ pathLength: motionProgress }}
+                  animate={{
+                    opacity: isPressed ? 1.0 : (isHovered ? 0.65 : 0),
+                    strokeWidth: isPressed ? 8.5 : (isHovered ? 7.5 : 6)
+                  }}
+                  transition={{ duration: 0.35, ease: "easeOut" }}
+                />
+
+                {/* Active Path */}
+                <motion.path 
+                  d={daylightArch}
+                  fill="none" 
+                  stroke={isNight ? "url(#moonNightGradient)" : "url(#sunDayGradient)"} 
+                  strokeWidth="5.5" 
+                  strokeLinecap="round"
+                  style={{ pathLength: motionProgress }}
+                  animate={{
+                    strokeWidth: isPressed ? 7 : (isHovered ? 6.5 : 5.5)
+                  }}
+                  transition={{ duration: 0.35, ease: "easeOut" }}
+                />
+              </g>
+            </motion.g>
 
             {/* Current Cycle Icon */}
             <motion.g
-              style={{ x: iconX, y: iconY }}
-              initial={{ opacity: 0, scale: 0 }}
-              animate={isInView && isIconVisible ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0 }}
-              transition={{ duration: 0.5 }}
+              style={{ x: iconX, y: iconY, originX: 0.5, originY: 0.5 }}
+              initial={{ opacity: 0, scale: 0, rotate: -180 }}
+              animate={{
+                opacity: (isInView && isIconVisible && !isPressed) ? 1 : 0,
+                scale: (isInView && isIconVisible && !isPressed) ? 1 : 0,
+                rotate: isPressed ? -180 : 0
+              }}
+              transition={
+                isPressed
+                  ? { duration: 0.08, ease: "easeIn" }
+                  : { delay: 0.55, duration: 0.2, ease: "easeOut" }
+              }
             >
               <foreignObject x="-14" y="-14" width="28" height="28">
                 <div className="flex items-center justify-center w-full h-full">
@@ -338,20 +556,28 @@ export default function SunPath({ weather, settings }: SunPathProps) {
           </g>
 
           {/* Labels */}
-          <foreignObject x="0" y={horizonY + 30} width="85" height="24">
-            <div className="flex items-center justify-end gap-1.5 text-app-text font-bold text-[11px] tracking-tight h-full select-none">
+          <foreignObject x="-25" y={horizonY + 30} width="105" height="24">
+            <div className="flex items-center justify-end gap-1.5 text-app-text font-bold text-[13px] tracking-tight h-full select-none whitespace-nowrap">
               <span>{cycleLabelStart}</span>
-              {cycleStartName === 'Moonrise' && <MoonriseIcon className="w-3.5 h-3.5" />}
             </div>
           </foreignObject>
 
-          <foreignObject x={endX - 25} y={horizonY + 30} width="85" height="24">
-            <div className="flex items-center justify-start gap-1.5 text-app-text font-bold text-[11px] tracking-tight h-full select-none">
-              {cycleEndName === 'Moonset' && <MoonsetIcon className="w-3.5 h-3.5" />}
+          <foreignObject x={endX - 15} y={horizonY + 30} width="105" height="24">
+            <div className="flex items-center justify-start gap-1.5 text-app-text font-bold text-[13px] tracking-tight h-full select-none whitespace-nowrap">
               <span>{cycleLabelEnd}</span>
             </div>
           </foreignObject>
         </svg>
+      </div>
+
+      {/* Daylight Duration labeled directly below the sunrise/sunset values in the tile */}
+      <div className="flex flex-col items-center justify-center mt-2.5 mb-1.5 select-none animate-fadeIn">
+        <span className="text-[11px] font-medium tracking-[0.08em] uppercase text-app-text-dim text-white/45">
+          Daylight Duration
+        </span>
+        <span className="text-[16px] font-light tracking-tight text-white mt-0.5">
+          {daylightDurationStr}
+        </span>
       </div>
     </div>
   );

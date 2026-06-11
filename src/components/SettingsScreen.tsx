@@ -548,7 +548,7 @@ const SettingsScreen = ({
     },
     privacy: {
       title: "Privacy Policy",
-      content: `Last Updated: June 2026\n\nNimbus Black is designed with a privacy-first approach. The application does not require user accounts, subscriptions, or personal information to function.\n\n## What Data Is Used\n\nTo provide weather forecasts, radar imagery, alerts, and environmental information, the application may access:\n- Your selected locations\n- Device location (only when permission is granted)\n- Application preferences and settings\n\nThis information is used solely to provide weather-related functionality.\n\n## Local-First Storage\n\nYour preferences, saved locations, units, themes, and alert settings are stored locally on your device using browser storage.\n\nNimbus Black does not operate user accounts and does not maintain a database of user profiles.\n\n## Third-Party Weather Services\n\nWeather forecasts, alerts, and environmental data are obtained from third-party providers such as Open-Meteo and related meteorological data sources.\n\nWhen weather information is requested, certain data such as your approximate IP address or requested coordinates may be processed by these providers according to their own privacy policies.\n\nNimbus Black does not control how third-party providers process data.\n\n## Analytics and Tracking\n- No user accounts\n- No advertising networks\n- No behavioral profiling\n- No sale of personal data\n- No third-party tracking libraries\n\nThe application does not intentionally collect personal information for marketing or advertising purposes.\n\n## Your Data\n\nYou remain in control of your data.\n\nRemoving saved locations, clearing browser storage, uninstalling the PWA, or clearing site data will remove locally stored application information.\n\n## Open Source\n\nNimbus Black is an open-source project. The source code is publicly available for inspection, review, and contribution under the project's license.\n\n## Changes\n\nThis Privacy Policy may be updated occasionally to reflect changes in functionality or service providers. Continued use of the application constitutes acceptance of the updated policy.`
+      content: `Last Updated: June 2026\n\nNimbus Black is designed with a privacy-first approach. The application does not require user accounts, subscriptions, or personal information to function.\n\n## What Data Is Used\n\nTo provide weather forecasts, radar imagery, alerts, and environmental information, the application may access:\n- Your selected locations\n- Device location (only when permission is granted)\n- Application preferences and settings\n\nThis information is used solely to provide weather-related functionality.\n\n## Local-First Storage\n\nYour preferences, saved locations, units, themes, and alert settings are stored locally on your device using browser storage.\n\nNimbus Black does not operate user accounts and does not maintain a database of user profiles.\n\n## Third-Party Weather Services\n\nWeather forecasts, alerts, and environmental data are obtained from third-party providers such as Open-Meteo and related meteorological data sources.\n\nWhen weather information is requested, certain data such as your approximate IP address or requested coordinates may be processed by these providers according to their own privacy policies.\n\nNimbus Black does not control how third-party providers process data.\n\n## Analytics and Tracking\n\n- No user accounts\n- No advertising networks\n- No behavioral profiling\n- No sale of personal data\n- No third-party tracking libraries\n\nThe application does not intentionally collect personal information for marketing or advertising purposes.\n\n## Your Data\n\nYou remain in control of your data.\n\nRemoving saved locations, clearing browser storage, uninstalling the PWA, or clearing site data will remove locally stored application information.\n\n## Open Source\n\nNimbus Black is an open-source project. The source code is publicly available for inspection, review, and contribution under the project's license.\n\n## Changes\n\nThis Privacy Policy may be updated occasionally to reflect changes in functionality or service providers. Continued use of the application constitutes acceptance of the updated policy.`
     }
   };
 
@@ -657,68 +657,7 @@ const SettingsScreen = ({
     }
   };
 
-  const SubView = ({ title, content, onClose }: { title: string; content: string; onClose: () => void; key?: string }) => (
-    <motion.div 
-      key="settings-subview-panel"
-      ref={scrollRef}
-      id="subview-page"
-      data-no-swipe
-      initial={{ x: "100%" }}
-      animate={{ x: 0 }}
-      exit={{ x: "100%" }}
-      transition={{ 
-        type: "spring",
-        stiffness: 280,
-        damping: 30
-      }}
-      className="fixed inset-0 z-[1020] bg-app-bg overflow-y-auto subview-page touch-pan-y"
-    >
-      <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">
-        <header className="flex items-center justify-between mb-8 px-1 h-10 w-full">
-          <h1 className="text-[28px] font-bold text-app-text tracking-tight">{title}</h1>
-          <motion.button 
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ type: "spring", stiffness: 380, damping: 30 }}
-            onClick={() => {
-              Haptic.light(localSettings.hapticEnabled);
-              onClose();
-            }} 
-            className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/15 transition-all shadow-xl select-none"
-          >
-            <Icons.ChevronLeft className="w-5.5 h-5.5 text-app-text" strokeWidth={2.5} />
-          </motion.button>
-        </header>
-        <div className="text-[14px] p-1 font-normal leading-relaxed text-app-text/75 space-y-5">
-          {content.split('\n\n').map((block, i) => {
-            const trimmed = block.trim();
-            if (trimmed.startsWith('## ')) {
-              return (
-                <h2 key={i} className="text-[15px] font-bold text-white tracking-tight pt-3">
-                  {trimmed.substring(3)}
-                </h2>
-              );
-            }
-            if (trimmed.startsWith('- ')) {
-              const items = trimmed.split('\n').map(line => line.replace(/^-\s*/, '').trim());
-              return (
-                <ul key={i} className="list-disc pl-5 space-y-2 text-app-text-dim">
-                  {items.map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              );
-            }
-            return (
-              <p key={i} className="whitespace-pre-line leading-relaxed">
-                {trimmed}
-              </p>
-            );
-          })}
-        </div>
-      </div>
-    </motion.div>
-  );
+
 
   return (
     <motion.div
@@ -748,7 +687,7 @@ const SettingsScreen = ({
             damping: 30, 
             stiffness: 280
           }}
-          className="absolute inset-0 z-[1005] bg-app-bg overflow-y-auto gpu settings-panel touch-pan-y"
+          className="absolute inset-0 z-[1005] bg-app-bg overflow-y-auto overscroll-contain gpu settings-panel touch-pan-y"
           data-no-swipe
         >
             <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-24">
@@ -1028,7 +967,7 @@ const SettingsScreen = ({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 280 }}
-            className="fixed inset-0 z-[1010] bg-app-bg overflow-y-auto sources-page touch-pan-y"
+            className="fixed inset-0 z-[1010] bg-app-bg overflow-y-auto overscroll-contain sources-page touch-pan-y"
           >
             <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">
               <header className="flex items-center justify-between mb-8 px-1 h-10 w-full">
@@ -1095,7 +1034,7 @@ const SettingsScreen = ({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 280 }}
-            className="fixed inset-0 z-[1010] bg-app-bg overflow-y-auto tiles-page touch-pan-y"
+            className="fixed inset-0 z-[1010] bg-app-bg overflow-y-auto overscroll-contain tiles-page touch-pan-y"
           >
             <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">
               <header className="flex items-center justify-between mb-12 px-1 h-10 w-full">
@@ -1209,12 +1148,66 @@ const SettingsScreen = ({
         )}
 
         {activeSubView !== 'none' && (
-          <SubView 
-            key="settings-subview"
-            title={subViews[activeSubView].title} 
-            content={subViews[activeSubView].content} 
-            onClose={() => handleBack()} 
-          />
+          <motion.div 
+            key="settings-subview-panel"
+            ref={scrollRef}
+            id="subview-page"
+            data-no-swipe
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ 
+              type: "spring",
+              stiffness: 280,
+              damping: 30
+            }}
+            className="fixed inset-0 z-[1020] bg-app-bg overflow-y-auto overscroll-contain subview-page touch-pan-y"
+          >
+            <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">
+              <header className="flex items-center justify-between mb-8 px-1 h-10 w-full">
+                <h1 className="text-[28px] font-bold text-app-text tracking-tight">{subViews[activeSubView].title}</h1>
+                <motion.button 
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  onClick={() => {
+                    Haptic.light(localSettings.hapticEnabled);
+                    handleBack();
+                  }} 
+                  className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/15 transition-all shadow-xl select-none"
+                >
+                  <Icons.ChevronLeft className="w-5.5 h-5.5 text-app-text" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                </motion.button>
+              </header>
+              <div className="text-[14px] p-1 font-normal leading-relaxed text-app-text/75 space-y-5">
+                {subViews[activeSubView].content.split('\n\n').map((block, i) => {
+                  const trimmed = block.trim();
+                  if (trimmed.startsWith('## ')) {
+                    return (
+                      <h2 key={i} className="text-[15px] font-bold text-white tracking-tight pt-3">
+                        {trimmed.substring(3)}
+                      </h2>
+                    );
+                  }
+                  if (trimmed.startsWith('- ')) {
+                    const items = trimmed.split('\n').map(line => line.replace(/^-\s*/, '').trim());
+                    return (
+                      <ul key={i} className="list-disc pl-5 space-y-2 text-app-text-dim">
+                        {items.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        ))}
+                      </ul>
+                    );
+                  }
+                  return (
+                    <p key={i} className="whitespace-pre-line leading-relaxed">
+                      {trimmed}
+                    </p>
+                  );
+                })}
+              </div>
+            </div>
+          </motion.div>
         )}
 
         {/* Floating Toast notification */}

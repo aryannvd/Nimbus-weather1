@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icons } from './WeatherIcons';
-import { searchLocations, reverseGeocode } from '../services/weatherService';
+import { searchLocations, reverseGeocode, fetchIPLocation } from '../services/weatherService';
 import { Location } from '../types';
 import debounce from 'lodash.debounce';
 import { motion, AnimatePresence } from 'motion/react';
@@ -266,10 +266,52 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
                   onClick={() => {
                     Haptic.medium(hapticEnabled);
                     setGeoError(null);
+                    setIsLoading(true);
+
+                    const runIpFallback = async () => {
+                      console.log("[SearchBarGeolocate] Falling back to IP Geolocation...");
+                      try {
+                        const ipLoc = await fetchIPLocation();
+                        if (ipLoc) {
+                          const curLoc: Location = {
+                            id: Math.floor(Date.now() / 1000),
+                            name: ipLoc.cityName,
+                            latitude: ipLoc.lat,
+                            longitude: ipLoc.lon,
+                            country: ipLoc.country,
+                            timezone: ipLoc.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+                          };
+                          Haptic.success(hapticEnabled);
+                          onSelect(curLoc);
+                          return true;
+                        }
+                      } catch (err) {
+                        console.error("[SearchBarGeolocate] IP geolocator failed:", err);
+                      }
+                      return false;
+                    };
+
                     if (navigator.geolocation) {
-                      setIsLoading(true);
+                      let resolvedOrFailed = false;
+
+                      // Backup timer: if GPS takes > 3.5 seconds, fallback instantly to IP Geolocation!
+                      const gpsTimerToken = setTimeout(async () => {
+                        if (!resolvedOrFailed) {
+                          resolvedOrFailed = true;
+                          const ok = await runIpFallback();
+                          setIsLoading(false);
+                          if (!ok) {
+                            setGeoError("Location request timed out. Please check your connection.");
+                          }
+                        }
+                      }, 3500);
+
                       navigator.geolocation.getCurrentPosition(
                         async (pos) => {
+                          if (resolvedOrFailed) return;
+                          resolvedOrFailed = true;
+                          clearTimeout(gpsTimerToken);
+
                           try {
                             const lat = pos.coords.latitude;
                             const lon = pos.coords.longitude;
@@ -294,36 +336,50 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
                             onSelect(curLoc);
                           } catch (err) {
                             console.error("Reverse geocoding error:", err);
-                            // Fallback if reverse geocode fails
-                            onSelect({
-                              id: 0,
-                              name: "Current Location",
-                              latitude: pos.coords.latitude,
-                              longitude: pos.coords.longitude,
-                              country: "Nearby",
-                              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-                            });
+                            const ok = await runIpFallback();
+                            if (!ok) {
+                              onSelect({
+                                id: 0,
+                                name: "Current Location",
+                                latitude: pos.coords.latitude,
+                                longitude: pos.coords.longitude,
+                                country: "Nearby",
+                                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+                              });
+                            }
                           } finally {
                             setIsLoading(false);
                           }
                         },
-                        (err) => {
-                          console.warn("Geolocation denied in search:", err);
+                        async (err) => {
+                          if (resolvedOrFailed) return;
+                          resolvedOrFailed = true;
+                          clearTimeout(gpsTimerToken);
+                          
+                          console.warn("GPS error encountered in search page:", err.message);
+                          const ok = await runIpFallback();
                           setIsLoading(false);
-                          if (err.code === err.PERMISSION_DENIED) {
-                            setGeoError("Permission denied. We need your permission to fetch weather for your exact location.");
-                          } else if (err.code === err.POSITION_UNAVAILABLE) {
-                            setGeoError("Location signals unavailable. Ensure GPS is enabled or try using a high-precision location service.");
-                          } else if (err.code === err.TIMEOUT) {
-                            setGeoError("Location request timed out. Please check your connection.");
-                          } else {
-                            setGeoError("An unknown location error occurred.");
+                          if (!ok) {
+                            if (err.code === err.PERMISSION_DENIED) {
+                              setGeoError("Permission denied. We need your permission to fetch weather for your exact location.");
+                            } else if (err.code === err.POSITION_UNAVAILABLE) {
+                              setGeoError("Location signals unavailable. Ensure GPS is enabled or try using a high-precision location service.");
+                            } else if (err.code === err.TIMEOUT) {
+                              setGeoError("Location request timed out. Please check your connection.");
+                            } else {
+                              setGeoError("An unknown location error occurred.");
+                            }
                           }
                         },
-                        { timeout: 10000, enableHighAccuracy: true }
+                        { timeout: 8000, enableHighAccuracy: true }
                       );
                     } else {
-                      setGeoError("Geolocation is not supported by your browser.");
+                      runIpFallback().then(ok => {
+                        setIsLoading(false);
+                        if (!ok) {
+                          setGeoError("Geolocation is not supported by your browser.");
+                        }
+                      });
                     }
                   }}
                   className="w-full flex items-center gap-4 p-4 text-left active:bg-app-text/5 bg-app-surface border border-app-border rounded-2xl transition-all"

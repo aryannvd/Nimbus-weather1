@@ -1,4 +1,7 @@
+import dns from 'node:dns';
 import firebaseConfig from '../firebase-applet-config.json';
+
+dns.setDefaultResultOrder('ipv4first');
 
 const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID || "d78d4db3-2898-4f81-8bba-c8b5b719ee1b";
 
@@ -64,7 +67,13 @@ export default async function handler(request: any, response: any) {
 
         // 2. Fetch specific weather forecast for this user
         const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
-        const weatherResponse = await fetch(weatherUrl);
+        const weatherResponse = await fetch(weatherUrl, {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+          }
+        });
         if (!weatherResponse.ok) {
           console.warn(`[CronMorning] Skipping user ${playerId} because weather fetch failed.`);
           continue;

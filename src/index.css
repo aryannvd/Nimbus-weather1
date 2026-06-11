@@ -2,37 +2,70 @@
 @import "tailwindcss";
 
 /* ============================================
-   SCROLLBAR — COMPLETELY HIDDEN
+   SCROLLBAR — COMPLETELY HIDDEN EVERYWHERE (SUPPORTING BROWSERS, SAFARI & ANDROID WEBVIEW)
    ============================================ */
 
-/* Hide scrollbars for Firefox */
+/* Disable scrollbar-width on Firefox and edge */
 * {
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
 }
 
-/* Hide scrollbars for Chrome, Safari, Opera, Edge, Brave, WebView */
-*::-webkit-scrollbar {
+/* 1. Global scrollbar suppression across WebKit engines (Chrome, Android WebView, Safari) */
+::-webkit-scrollbar,
+*::-webkit-scrollbar,
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+#root::-webkit-scrollbar,
+.app-container::-webkit-scrollbar {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
   background: transparent !important;
+  opacity: 0 !important;
 }
 
+/* 2. Track, thumb and corner hiding for elements */
+::-webkit-scrollbar-track,
 *::-webkit-scrollbar-track {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
 }
 
+::-webkit-scrollbar-thumb,
 *::-webkit-scrollbar-thumb {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
 }
 
+::-webkit-scrollbar-corner,
 *::-webkit-scrollbar-corner {
   background: transparent !important;
+}
+
+/* 3. Class-specific targeting to override page/panel scroll overlays */
+.no-scrollbar::-webkit-scrollbar,
+.hourly-forecast::-webkit-scrollbar,
+.hourly-container::-webkit-scrollbar,
+.hourly-scroll::-webkit-scrollbar,
+.about-page::-webkit-scrollbar,
+.settings-panel::-webkit-scrollbar,
+.sources-page::-webkit-scrollbar,
+.tiles-page::-webkit-scrollbar,
+.subview-page::-webkit-scrollbar,
+.city-card::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+/* 4. Utility class for no scrollbar */
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
 }
 
 @theme {
@@ -273,8 +306,6 @@ body, html {
 [data-animations="off"] [class*="lightning"],
 [data-animations="off"] .snow,
 [data-animations="off"] .rain,
-[data-animations="off"] .stars,
-[data-animations="off"] .star,
 [data-animations="off"] svg[class*="animate"],
 [data-animations="off"] [class*="sunbeam"] {
   animation-play-state: paused !important;

@@ -54,7 +54,7 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
   };
 
   return (
-    <div className="flex flex-col items-center text-center py-6 overflow-visible">
+    <div className="flex flex-col items-center text-center pt-1 pb-6 overflow-visible">
       {/* Status Bar - Moon Phase & Last Updated */}
       <motion.div 
         initial={{ y: -20, opacity: 0 }}

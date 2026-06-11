@@ -33,14 +33,7 @@ const hexToRgb = (hex: string): RGB => {
   } : { r: 0, g: 0, b: 0 };
 };
 
-interface ShootingStar {
-  x: number;
-  y: number;
-  length: number;
-  speed: number;
-  active: boolean;
-  timer: number;
-}
+
 
 // Map condition variables to specific 5-stop color palettes
 const getTargetGradientColors = (weatherCode: number, isNight: boolean): RGB[] => {
@@ -89,15 +82,6 @@ export default function AtmosphereCanvas({ weatherCode, isNight, settings }: Atm
   const particles = useRef<Particle[]>([]);
   const lastWeatherState = useRef<{ code: number; night: boolean } | null>(null);
   const lightningFlash = useRef<number>(0); // opacity offset of lightning
-  
-  const shootingStar = useRef<ShootingStar>({
-    x: 0,
-    y: 0,
-    length: 0,
-    speed: 0,
-    active: false,
-    timer: 0
-  });
 
   useEffect(() => {
     // Prime values
@@ -216,60 +200,6 @@ export default function AtmosphereCanvas({ weatherCode, isNight, settings }: Atm
 
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
-      
-      // 2.5. If night, render the beautiful 45-degree shooting star
-      if (isNight) {
-        const star = shootingStar.current;
-        if (!star.active) {
-          const now = Date.now();
-          if (star.timer === 0) star.timer = now;
-          if (now - star.timer > 4000 + Math.random() * 1000) {
-            star.active = true;
-            // Start near the top-right corner
-            star.x = w * (0.75 + Math.random() * 0.25);
-            star.y = h * (0.02 + Math.random() * 0.08); 
-            star.speed = 5 + Math.random() * 3; 
-            star.length = 65 + Math.random() * 35; 
-            star.timer = now;
-          }
-        } else {
-          // Travel at exact 45-degree angle downwards and leftwards
-          const dist = star.speed;
-          const dxArr = -dist / Math.SQRT2;
-          const dyArr = dist / Math.SQRT2;
-          star.x += dxArr;
-          star.y += dyArr;
-
-          if (star.x < -100 || star.y > h + 100) {
-            star.active = false;
-            star.timer = Date.now();
-          } else {
-            ctx.save();
-            ctx.beginPath();
-            
-            // Draw 45-degree line from tail (up & right) to head (down & left)
-            const dxOff = star.length / Math.SQRT2;
-            const dyOff = star.length / Math.SQRT2;
-
-            ctx.shadowBlur = 12;
-            ctx.shadowColor = "rgba(255, 255, 255, 0.4)";
-
-            const gradLine = ctx.createLinearGradient(star.x + dxOff, star.y - dyOff, star.x, star.y);
-            gradLine.addColorStop(0, 'rgba(255, 255, 255, 0)');
-            gradLine.addColorStop(0.3, 'rgba(255, 255, 255, 0.15)');
-            gradLine.addColorStop(0.8, 'rgba(255, 255, 255, 0.55)');
-            gradLine.addColorStop(1, 'rgba(255, 255, 255, 1.0)');
-
-            ctx.strokeStyle = gradLine;
-            ctx.lineWidth = 1.2;
-            ctx.lineCap = 'round';
-            ctx.moveTo(star.x + dxOff, star.y - dyOff);
-            ctx.lineTo(star.x, star.y);
-            ctx.stroke();
-            ctx.restore();
-          }
-        }
-      }
 
       // 3. Update & render particles (Particle rendering disabled for maximum performance)
 

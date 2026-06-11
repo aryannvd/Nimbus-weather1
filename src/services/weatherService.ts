@@ -40,46 +40,88 @@ export const fetchWithTimeout = async (url: string, options: any = {}, timeout =
 };
 
 const safeFetch = async (url: string) => {
+  // 1. Try direct client-side fetch first (works perfectly in client browser if no strict CSP or blocks exist)
+  try {
+    console.log(`[Direct] Fetching: ${url}`);
+    const response = await fetchWithTimeout(url, {}, 2000, 0);
+    if (response.ok) {
+      const data = await response.json();
+      if (data && !data.error) {
+        return data;
+      }
+    }
+    console.warn(`[Direct] Failed with status ${response?.status} for ${url}`);
+  } catch (err) {
+    console.error("[Direct] Failed completely for", url, err);
+  }
+
+  // 1b. Try apex domain fallback client-side if subdomain resolves/connects poorly
+  if (url.startsWith("https://api.open-meteo.com")) {
+    const altUrl = url.replace("https://api.open-meteo.com", "https://open-meteo.com");
+    try {
+      console.log(`[Direct-Alternative] Fetching: ${altUrl}`);
+      const response = await fetchWithTimeout(altUrl, {}, 2000, 0);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && !data.error) {
+          return data;
+        }
+      }
+    } catch (err) {
+      console.warn("[Direct-Alternative] Failed for", altUrl, err);
+    }
+  }
+
+  // 2. Fallback to proxy fetch if direct fetch yields no block or fails
   if (typeof window !== "undefined") {
     let proxyUrl = "";
+    const origin = window.location.origin;
     if (url.startsWith("https://api.open-meteo.com")) {
-      proxyUrl = url.replace("https://api.open-meteo.com", "/api/weather-proxy");
+      const suffix = url.substring("https://api.open-meteo.com".length);
+      proxyUrl = `${origin}/api/weather-proxy?path=${encodeURIComponent(suffix)}`;
     } else if (url.startsWith("https://geocoding-api.open-meteo.com")) {
-      proxyUrl = url.replace("https://geocoding-api.open-meteo.com", "/api/geocoding-proxy");
+      const suffix = url.substring("https://geocoding-api.open-meteo.com".length);
+      proxyUrl = `${origin}/api/geocoding-proxy?path=${encodeURIComponent(suffix)}`;
     } else if (url.startsWith("https://air-quality-api.open-meteo.com")) {
-      proxyUrl = url.replace("https://air-quality-api.open-meteo.com", "/api/air-quality-proxy");
+      const suffix = url.substring("https://air-quality-api.open-meteo.com".length);
+      proxyUrl = `${origin}/api/air-quality-proxy?path=${encodeURIComponent(suffix)}`;
     }
 
     if (proxyUrl) {
       try {
-        console.log(`[Proxy] Fetching via server: ${proxyUrl}`);
-        const response = await fetchWithTimeout(proxyUrl, {}, 8000, 1);
+        console.log(`[Proxy-Fallback] Fetching via server: ${proxyUrl}`);
+        const response = await fetchWithTimeout(proxyUrl, {}, 3500, 0);
         if (response.ok) {
           const data = await response.json();
           if (data && !data.error) {
             return data;
           }
         }
-        console.warn(`[Proxy] Status ${response.status} or error in body. Falling back to direct URL.`);
+        console.warn(`[Proxy-Fallback] Status ${response.status} or error in body.`);
       } catch (err) {
-        console.warn(`[Proxy] Fetch failed for ${proxyUrl}. Falling back to direct URL.`, err);
+        console.warn(`[Proxy-Fallback] Fetch failed for ${proxyUrl}.`, err);
       }
     }
   }
 
-  // Fallback to direct client-side fetch (or default if server proxy is disabled/unresponsive)
-  try {
-    console.log(`[Direct] Fetching: ${url}`);
-    const response = await fetchWithTimeout(url, {}, 12000, 2);
-    if (!response.ok) {
-      console.warn(`[Direct] Failed with status ${response.status} for ${url}`);
-      return null;
+  // 3. Fallback to HTTP if HTTPS direct failed
+  if (url.startsWith("https://")) {
+    const httpUrl = url.replace("https://", "http://");
+    try {
+      console.log(`[Direct-HTTP Fallback] Trying HTTP fallback: ${httpUrl}`);
+      const response = await fetchWithTimeout(httpUrl, {}, 2000, 0);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && !data.error) {
+          return data;
+        }
+      }
+    } catch (e) {
+      console.error("[Direct-HTTP Fallback] Failed for", httpUrl, e);
     }
-    return await response.json();
-  } catch (err) {
-    console.error("[Direct] Failed completely for", url, err);
-    return null;
   }
+
+  return null;
 };
 
 export function parseTimeToAbsoluteDate(timeStr: string, timeZone: string): Date {
@@ -408,6 +450,15 @@ export const parseSunriseSunset = (res: any, timezone: string): any => {
   const sunriseISO = res.daily.sunrise[0];
   const sunsetISO  = res.daily.sunset[0];
 
+  if (!sunriseISO || !sunsetISO) {
+    return {
+      sunriseISO: sunriseISO || "",
+      sunsetISO: sunsetISO || "",
+      sunriseLabel: "06:00 AM",
+      sunsetLabel: "06:30 PM",
+    };
+  }
+
   const sunrise = new Date(sunriseISO);
   const sunset  = new Date(sunsetISO);
 
@@ -423,6 +474,9 @@ export const parseSunriseSunset = (res: any, timezone: string): any => {
   }
 
   const fmt = (d: Date) => {
+    if (isNaN(d.getTime())) {
+      return "--:--";
+    }
     try {
       return d.toLocaleTimeString("en-IN", {
         timeZone: validatedTimezone,
@@ -431,11 +485,15 @@ export const parseSunriseSunset = (res: any, timezone: string): any => {
         hour12: true
       });
     } catch (err) {
-      return d.toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true
-      });
+      try {
+        return d.toLocaleTimeString("en-IN", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true
+        });
+      } catch (e) {
+        return "--:--";
+      }
     }
   };
 
@@ -677,20 +735,141 @@ export async function searchLocations(query: string): Promise<Location[]> {
   }
 }
 
-export async function reverseGeocode(lat: number, lon: number): Promise<Partial<Location> | null> {
+export async function fetchIPLocation(): Promise<{ lat: number; lon: number; cityName: string; country: string; timezone: string } | null> {
+  console.log('[IPGeolocation] Initiating IP Geo lookup sequence...');
+  
+  // Try 1: FreeIPAPI (Highly reliable, fast, generous limit)
   try {
-    console.log('[RateLimiter] Running Nominatim Reverse Geocoding');
+    const res = await fetchWithTimeout('https://freeipapi.com/api/json', {}, 4000, 0);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.cityName && data.cityName.trim().length > 0) {
+        console.log('[IPGeolocation] Successful match via freeipapi.com:', data.cityName);
+        return {
+          lat: Number(data.latitude),
+          lon: Number(data.longitude),
+          cityName: data.cityName,
+          country: data.countryName || 'Nearby',
+          timezone: data.timeZone || 'auto'
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[IPGeolocation] freeipapi.com failed or timed out:', err);
+  }
+
+  // Try 2: IPWho.is (Highly reliable, fast)
+  try {
+    const res = await fetchWithTimeout('https://ipwho.is/', {}, 4000, 0);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.city && data.city.trim().length > 0) {
+        console.log('[IPGeolocation] Successful match via ipwho.is:', data.city);
+        return {
+          lat: Number(data.latitude),
+          lon: Number(data.longitude),
+          cityName: data.city,
+          country: data.country || 'Nearby',
+          timezone: data.timezone?.id || 'auto'
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[IPGeolocation] ipwho.is failed or timed out:', err);
+  }
+
+  // Try 3: ipapi.co (Standard keyless lookup)
+  try {
+    const res = await fetchWithTimeout('https://ipapi.co/json/', {}, 4000, 0);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.city && data.city.trim().length > 0) {
+        console.log('[IPGeolocation] Successful match via ipapi.co:', data.city);
+        return {
+          lat: Number(data.latitude),
+          lon: Number(data.longitude),
+          cityName: data.city,
+          country: data.country_name || 'Nearby',
+          timezone: data.timezone || 'auto'
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[IPGeolocation] ipapi.co failed or timed out:', err);
+  }
+
+  return null;
+}
+
+export async function reverseGeocode(lat: number, lon: number): Promise<Partial<Location> | null> {
+  // 1. Primary: Photon by Komoot (Un-rate-limited, open, built on OpenStreetMap, extremely fast & robust)
+  try {
+    console.log('[PhotonGeocoding] Running Photon Reverse Geocoding');
+    const url = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}`;
+    const response = await fetchWithTimeout(url, {}, 4000, 0);
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.features && data.features.length > 0) {
+        const props = data.features[0].properties || {};
+        const name = props.city || props.town || props.village || props.locality || props.district || props.name;
+        if (name && name.trim().toLowerCase() !== 'unnamed road') {
+          console.log('[PhotonGeocoding] Found city:', name);
+          return {
+            name,
+            country: props.country || "",
+            admin1: props.state || ""
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Photon reverse geocode failed:', err);
+  }
+
+  // 2. Secondary: BigDataCloud Reverse Geocode Client API (free, fast, keyless)
+  try {
+    console.log('[BackupGeocoding] Running BigDataCloud Reverse Geocoding');
+    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
+    const response = await fetchWithTimeout(url, {}, 4000, 0);
+    if (response.ok) {
+      const item = await response.json();
+      let name = item.city || item.locality;
+      if (!name && item.localityInfo?.administrative) {
+        // Look for city/town levels in the admin sequence
+        const adminList = item.localityInfo.administrative;
+        const cityObj = adminList.find((a: any) => a.order === 6 || a.order === 7 || a.order === 8);
+        if (cityObj) name = cityObj.name;
+      }
+      if (!name) name = item.principalSubdivision;
+
+      if (name) {
+        console.log('[BackupGeocoding] Found city:', name);
+        return {
+          name,
+          country: item.countryName || "",
+          admin1: item.principalSubdivision || ""
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('BigDataCloud reverse geocode failed:', err);
+  }
+
+  // 3. Third-line fallback: Nominatim Reference Geocoder
+  try {
+    console.log('[RateLimiter] Running Nominatim Reference Geocoding');
     const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`;
     const response = await fetchWithTimeout(url, {
       headers: {
         'User-Agent': 'NimbusWeatherApp/1.0'
       }
-    }, 5000, 0);
+    }, 4000, 0);
     if (response.ok) {
       const item = await response.json();
       const addr = item.address || {};
       const name = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || addr.county;
       if (name) {
+        console.log('[RateLimiter] Found city:', name);
         return {
           name,
           country: addr.country || "",
@@ -702,24 +881,20 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Partial<
     console.warn('Nominatim reverse geocode failed:', err);
   }
 
-  // Backup: BigDataCloud Reverse Geocode Client API (free, fast, keyless)
+  // 4. IP-based fallback if reverse geocoding of coords failed (to guarantee a real city is returned)
   try {
-    console.log('[BackupGeocoding] Running BigDataCloud Reverse Geocoding');
-    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
-    const response = await fetchWithTimeout(url, {}, 5000, 0);
-    if (response.ok) {
-      const item = await response.json();
-      const name = item.city || item.locality || item.principalSubdivision;
-      if (name) {
-        return {
-          name,
-          country: item.countryName || "",
-          admin1: item.principalSubdivision || ""
-        };
-      }
+    console.log('[ReverseGeocodeIPFallback] Coordinates could not be resolved, trying IP Geolocation fallback...');
+    const ipLoc = await fetchIPLocation();
+    if (ipLoc) {
+      console.log('[ReverseGeocodeIPFallback] Resolved via IP Fallback:', ipLoc.cityName);
+      return {
+        name: ipLoc.cityName,
+        country: ipLoc.country,
+        admin1: ""
+      };
     }
   } catch (err) {
-    console.warn('BigDataCloud reverse geocode failed:', err);
+    console.warn('ReverseGeocode IP fallback failed:', err);
   }
 
   return null;
@@ -1354,6 +1529,131 @@ export function getFallbackWeatherData(lat: number, lon: number, timezone: strin
   const resolvedTimezone = timezone === 'auto' ? 'UTC' : (timezone || 'UTC');
   const nowISO = new Date().toISOString();
   
+  // 1. Identify climatology by matching city name for accurate local weather when offline or blocked
+  let matchedClim: { temps: number[], humidity: number[], codes: number[] } | null = null;
+  const nameNorm = (cityName || '').toLowerCase().trim();
+  
+  if (nameNorm.includes('mumbai') || nameNorm.includes('bombay')) {
+    // Dedicated Mumbai high-fidelity profile (e.g. June has high temps around 32-34C, high humidity, monsoon rain)
+    matchedClim = {
+      temps: [31, 32, 33, 33, 34, 32, 30, 30, 31, 33, 33, 32],
+      humidity: [62, 62, 63, 67, 69, 80, 86, 86, 83, 73, 65, 62],
+      codes: [0, 0, 0, 1, 1, 63, 63, 63, 63, 2, 1, 0]
+    };
+  } else if (nameNorm.includes('delhi') || nameNorm.includes('new delhi')) {
+    matchedClim = {
+      temps: [21, 24, 30, 36, 40, 39, 35, 34, 34, 33, 28, 22],
+      humidity: [55, 50, 43, 33, 30, 45, 65, 70, 60, 48, 50, 56],
+      codes: [1, 1, 0, 0, 1, 2, 61, 61, 2, 1, 1, 1]
+    };
+  } else if (nameNorm.includes('bangalore') || nameNorm.includes('bengaluru')) {
+    matchedClim = {
+      temps: [28, 30, 32, 34, 33, 29, 28, 28, 29, 28, 27, 26],
+      humidity: [52, 45, 40, 46, 58, 68, 72, 72, 70, 70, 64, 58],
+      codes: [0, 0, 0, 2, 3, 61, 61, 61, 61, 61, 2, 1]
+    };
+  } else if (nameNorm.includes('chennai') || nameNorm.includes('madras')) {
+    matchedClim = {
+      temps: [29, 31, 33, 35, 38, 37, 35, 35, 34, 32, 29, 28],
+      humidity: [73, 73, 72, 71, 63, 61, 64, 66, 69, 75, 81, 79],
+      codes: [1, 0, 0, 0, 1, 2, 2, 61, 61, 61, 63, 61]
+    };
+  } else if (nameNorm.includes('kolkata') || nameNorm.includes('calcutta')) {
+    matchedClim = {
+      temps: [26, 29, 34, 36, 36, 34, 32, 32, 32, 32, 30, 27],
+      humidity: [66, 61, 59, 64, 69, 78, 83, 83, 82, 74, 67, 66],
+      codes: [0, 0, 1, 2, 3, 63, 63, 63, 63, 3, 1, 0]
+    };
+  } else if (nameNorm.includes('pune')) {
+    matchedClim = {
+      temps: [30, 32, 36, 38, 37, 32, 28, 28, 30, 32, 31, 30],
+      humidity: [48, 42, 38, 40, 52, 72, 82, 83, 78, 64, 56, 50],
+      codes: [0, 0, 0, 1, 2, 61, 61, 61, 61, 2, 1, 0]
+    };
+  } else if (nameNorm.includes('hyderabad')) {
+    matchedClim = {
+      temps: [29, 32, 35, 38, 39, 34, 31, 30, 31, 31, 29, 28],
+      humidity: [53, 46, 41, 40, 43, 58, 67, 69, 68, 61, 55, 54],
+      codes: [0, 0, 0, 1, 2, 61, 61, 61, 61, 2, 1, 0]
+    };
+  } else if (nameNorm.includes('ahmedabad')) {
+    matchedClim = {
+      temps: [28, 31, 36, 40, 42, 38, 33, 32, 34, 36, 33, 29],
+      humidity: [45, 38, 33, 35, 42, 58, 74, 78, 70, 50, 46, 46],
+      codes: [0, 0, 0, 0, 1, 2, 63, 63, 61, 1, 0, 0]
+    };
+  } else if (nameNorm.includes('new york') || nameNorm.includes('nyc')) {
+    matchedClim = {
+      temps: [4, 5, 10, 16, 22, 27, 29, 28, 24, 18, 12, 6],
+      humidity: [65, 63, 62, 61, 66, 69, 69, 71, 72, 69, 68, 67],
+      codes: [71, 71, 2, 1, 1, 61, 61, 61, 61, 2, 1, 71]
+    };
+  } else if (nameNorm.includes('london')) {
+    matchedClim = {
+      temps: [8, 9, 11, 14, 17, 20, 23, 23, 20, 15, 11, 8],
+      humidity: [81, 77, 73, 69, 68, 67, 67, 69, 73, 79, 82, 83],
+      codes: [61, 61, 61, 2, 2, 1, 1, 1, 61, 61, 61, 61]
+    };
+  } else if (nameNorm.includes('tokyo')) {
+    matchedClim = {
+      temps: [10, 10, 13, 19, 23, 26, 29, 31, 27, 22, 17, 12],
+      humidity: [52, 53, 59, 63, 68, 75, 77, 74, 76, 70, 64, 56],
+      codes: [0, 1, 2, 3, 3, 61, 61, 61, 61, 3, 1, 0]
+    };
+  } else if (nameNorm.includes('sydney')) {
+    matchedClim = {
+      temps: [26, 26, 25, 23, 20, 18, 17, 18, 20, 22, 24, 25],
+      humidity: [71, 73, 73, 72, 73, 74, 71, 67, 65, 64, 66, 68],
+      codes: [1, 1, 61, 61, 61, 61, 1, 0, 0, 1, 1, 1]
+    };
+  }
+
+  // 2. High-fidelity mathematical climatology model (based on latitude, longitude, and current month) if city is not in index
+  const absoluteLatitude = Math.abs(lat);
+  const month = new Date().getMonth(); // 0 to 11
+  
+  let targetMax = 20;
+  let targetMin = 14;
+  let targetHum = 65;
+  let targetWCode = 1;
+  
+  if (matchedClim) {
+    targetMax = matchedClim.temps[month];
+    targetMin = Math.round(targetMax - 6 - Math.random() * 2);
+    targetHum = matchedClim.humidity[month];
+    targetWCode = matchedClim.codes[month];
+  } else {
+    // Equator base average height max is hot ~32°C, polar is freezing (~ -12°C)
+    const baseTemp = 32.0 - 0.39 * absoluteLatitude;
+    // Seasonal amplitude is bigger at higher latitudes, near zero at equator
+    const seasonalAmplitude = Math.min(15, absoluteLatitude * 0.30);
+    // Northern hemisphere summer peaks around July (index 6)
+    const northernPhase = -Math.cos(((month - 0.5) / 12) * 2 * Math.PI);
+    const seasonMultiplier = lat >= 0 ? northernPhase : -northernPhase;
+    
+    targetMax = Math.round(baseTemp + seasonalAmplitude * seasonMultiplier);
+    targetMin = Math.round((baseTemp - 7.5) + (seasonalAmplitude - 2) * seasonMultiplier);
+    
+    // Estimate humidity based on latitude belts
+    if (absoluteLatitude < 12) {
+      targetHum = 76; // Wet Equatorial belt
+    } else if (absoluteLatitude >= 15 && absoluteLatitude <= 32) {
+      // Subtropical dry belts / monsoon belts
+      const isSummerMoisture = (lat >= 0 && month >= 5 && month <= 8);
+      targetHum = isSummerMoisture ? 74 : 45;
+    } else {
+      targetHum = 63; // Temperate zone
+    }
+    
+    if (absoluteLatitude < 25) {
+      // Tropical zones: Summer monsoons
+      const isSummerRain = (lat >= 0 && month >= 5 && month <= 8) || (lat < 0 && (month <= 1 || month >= 11));
+      targetWCode = isSummerRain ? 61 : 0; // rain vs clear
+    } else {
+      targetWCode = seasonMultiplier < -0.4 ? 3 : 1; // overcast vs partly cloudy
+    }
+  }
+
   const dailyTimes = [];
   const dailyMin = [];
   const dailyMax = [];
@@ -1371,11 +1671,16 @@ export function getFallbackWeatherData(lat: number, lon: number, timezone: strin
     d.setDate(d.getDate() + i);
     const dateStr = d.toISOString().split('T')[0];
     dailyTimes.push(dateStr);
-    dailyMin.push(15 + Math.round(Math.sin(i) * 3));
-    dailyMax.push(22 + Math.round(Math.cos(i) * 4));
-    dailyCodes.push(i % 3 === 0 ? 0 : (i % 3 === 1 ? 1 : 2));
-    dailyPrecip.push(10 + (i * 5) % 40);
-    dailyUV.push(5);
+    
+    // Stagger values over forecast days for realistic UI variety
+    const dayMax = targetMax + Math.round(Math.sin(i / 1.5) * 1.5);
+    const dayMin = targetMin + Math.round(Math.cos(i / 1.5) * 1.5);
+    
+    dailyMin.push(dayMin);
+    dailyMax.push(dayMax);
+    dailyCodes.push(i % 5 === 0 ? targetWCode : (i % 3 === 0 ? 1 : 2));
+    dailyPrecip.push(targetWCode >= 60 ? (15 + (i * 3) % 25) : 0);
+    dailyUV.push(absoluteLatitude < 30 ? 8 : 4);
     sunrises.push(`${dateStr}T06:00`);
     sunsets.push(`${dateStr}T18:30`);
     moonrises.push(`${dateStr}T21:00`);
@@ -1401,30 +1706,41 @@ export function getFallbackWeatherData(lat: number, lon: number, timezone: strin
     const hr = String(d.getHours()).padStart(2, '0');
     hourlyTime.push(`${yr}-${mo}-${dy}T${hr}:00`);
     
-    hourlyTemp.push(18 + Math.round(Math.sin(i / 4) * 4));
-    hourlyCodes.push((i % 24) < 6 || (i % 24) > 18 ? 1 : 0);
+    // Simulate beautiful diurnal diurnal temperature cycle (warmer in mid-afternoon, cooler at night)
+    const hourOfDay = d.getHours();
+    const diurnalFactor = -Math.cos(((hourOfDay - 5.5) / 24) * 2 * Math.PI);
+    const hrTemp = Math.round(targetMin + (targetMax - targetMin) * (diurnalFactor + 1) / 2);
+    
+    hourlyTemp.push(hrTemp);
+    hourlyCodes.push(hourOfDay < 6 || hourOfDay > 18 ? 1 : 0);
     hourlyPrecipProb.push((i * 3) % 20);
     hourlyWindSpeed.push(3 + (i % 5));
     hourlyWindDir.push(180 + (i % 90));
     hourlyPrecip.push(0);
-    hourlyUV.push((i % 24) >= 10 && (i % 24) <= 15 ? 4 : 0);
+    hourlyUV.push(hourOfDay >= 10 && hourOfDay <= 15 ? 4 : 0);
   }
+
+  // Calculate current diurnal estimates for instant correct temperature mapping
+  const currentHour = new Date().getHours();
+  const currentDiurnalFactor = -Math.cos(((currentHour - 5.5) / 24) * 2 * Math.PI);
+  const currentTemp = Math.round(targetMin + (targetMax - targetMin) * (currentDiurnalFactor + 1) / 2);
+  const apparentTemp = currentTemp + (targetHum > 70 ? 2 : (targetHum < 40 ? -2 : 0));
 
   return {
     current: {
       time: nowISO,
-      temperature: 20,
-      relativeHumidity: 65,
-      weatherCode: 1,
-      summaryCode: 1,
+      temperature: currentTemp,
+      relativeHumidity: targetHum,
+      weatherCode: targetWCode,
+      summaryCode: targetWCode,
       windSpeed: 4,
       windDirection: 180,
-      apparentTemperature: 21,
-      isDay: true,
+      apparentTemperature: apparentTemp,
+      isDay: currentHour >= 6 && currentHour <= 18,
       visibility: 10000,
       surfacePressure: 1013,
       precipitation: 0,
-      uvIndex: 3,
+      uvIndex: currentHour >= 10 && currentHour <= 15 ? 5 : 0,
     },
     hourly: {
       time: hourlyTime,
@@ -1452,20 +1768,20 @@ export function getFallbackWeatherData(lat: number, lon: number, timezone: strin
       precipitationSum: precips,
     },
     airQuality: {
-      usAqi: 42,
-      description: "Good",
-      color: "#10b981",
-      recommendation: "Air quality is satisfactory.",
+      usAqi: absoluteLatitude < 25 ? 112 : 42, // Typical air quality index estimations
+      description: absoluteLatitude < 25 ? "Moderate" : "Good",
+      color: absoluteLatitude < 25 ? "#fbbf24" : "#10b981",
+      recommendation: absoluteLatitude < 25 ? "Air quality is acceptable." : "Air quality is satisfactory.",
       standard: 'US',
       standardLabel: "AQI · US Standard",
-      pm2_5: 9.8,
-      pm10: 15.2,
+      pm2_5: absoluteLatitude < 25 ? 39.5 : 9.8,
+      pm10: absoluteLatitude < 25 ? 64.1 : 15.2,
       co: 320,
       no2: 8.5,
       o3: 45,
       so2: 1.2,
       lastUpdated: nowISO,
-      freshnessLabel: "Fallback Mode",
+      freshnessLabel: "Fallback Climatological Estimations",
       isUnavailable: false,
       isStale: false,
     },

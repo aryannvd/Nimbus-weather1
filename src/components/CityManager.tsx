@@ -4,7 +4,7 @@ import { Icons, WeatherIcon } from './WeatherIcons';
 import { Location, WeatherData } from '../types';
 import { cn, GLASS_STYLE_SUBTLE } from '../lib/utils';
 import { Haptic } from '../lib/haptics';
-import { getWeatherInfo } from '../services/weatherService';
+import { getWeatherInfo, getCountryCode } from '../services/weatherService';
 
 interface CityManagerProps {
   locations: Location[];
@@ -28,6 +28,7 @@ interface CityListItemProps {
   isSelected: boolean;
   onSelect: (index: number) => void;
   onRemove: (e: React.MouseEvent, index: number) => void;
+  onDragEnd?: () => void;
 }
 
 const CityListItem = ({
@@ -38,6 +39,7 @@ const CityListItem = ({
   isSelected,
   onSelect,
   onRemove,
+  onDragEnd,
 }: CityListItemProps) => {
   const dragControls = useDragControls();
   const info = weather ? getWeatherInfo(weather.current.weatherCode, weather.current.isDay) : null;
@@ -46,10 +48,24 @@ const CityListItem = ({
     <Reorder.Item 
       key={`${loc.latitude}-${loc.longitude}-${loc.name}`} 
       value={loc}
-      className="relative"
+      className="relative select-none"
       drag={!loc.isCurrentLocation}
       dragListener={false}
       dragControls={dragControls}
+      onDragEnd={() => {
+        Haptic.light(hapticEnabled);
+        onDragEnd?.();
+      }}
+      whileDrag={{ 
+        scale: 1.03, 
+        zIndex: 9999,
+        boxShadow: "0 12px 30px rgba(0,0,0,0.5)"
+      }}
+      transition={{ 
+        type: "spring", 
+        stiffness: 400, 
+        damping: 38 
+      }}
     >
       <motion.div
         onClick={() => {
@@ -57,7 +73,7 @@ const CityListItem = ({
           onSelect(index);
         }}
         className={cn(
-          "p-5 flex items-center justify-between rounded-[28px] border transition-all duration-300",
+          "p-5 flex items-center justify-between rounded-[28px] border transition-colors duration-200 cursor-pointer",
           isSelected ? "bg-white/10 border-white/20" : "bg-white/5 border-white/5"
         )}
       >
@@ -65,6 +81,7 @@ const CityListItem = ({
           {!loc.isCurrentLocation ? (
             <div 
               onPointerDown={(e) => {
+                Haptic.light(hapticEnabled);
                 dragControls.start(e);
               }}
               className="flex flex-col gap-1 items-center opacity-40 cursor-grab active:cursor-grabbing p-1.5 -m-1.5 touch-none"
@@ -72,17 +89,20 @@ const CityListItem = ({
               <Icons.GripVertical className="w-4 h-4" />
             </div>
           ) : (
-            <div className="flex flex-col gap-1 items-center select-none text-[15px]">
-              📍
+            <div className="flex items-center justify-center shrink-0 w-4 h-4 text-white/90">
+              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
+                <path fillRule="evenodd" clipRule="evenodd" d="M12 2C8.14 2 5 5.14 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7zm0 10c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z" />
+              </svg>
             </div>
           )}
           
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
               <span className="text-[17px] font-semibold">{loc.name}</span>
-              {loc.isCurrentLocation && <span className="text-xs text-white/40">Current</span>}
             </div>
-            <span className="text-[13px] text-white/45">{loc.country}</span>
+            <span className="text-[13px] text-white/45">
+              {getCountryCode(loc.country)}
+            </span>
           </div>
         </div>
 
@@ -132,6 +152,11 @@ const CityManager = ({
   onClose,
   panelStackRef
 }: CityManagerProps) => {
+  const [localLocations, setLocalLocations] = React.useState<Location[]>(locations);
+
+  React.useEffect(() => {
+    setLocalLocations(locations);
+  }, [locations]);
 
   const handleRemove = (e: React.MouseEvent, index: number) => {
     e.stopPropagation();
@@ -153,40 +178,57 @@ const CityManager = ({
       className="fixed inset-0 z-[99990] bg-black overflow-y-auto gpu"
       data-no-swipe
     >
-      <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-32 pb-24">
-        <header className="flex items-center justify-between mb-8 px-1">
-          <h1 className="text-[34px] font-semibold text-white tracking-tight uppercase">MANAGE CITIES</h1>
+      <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-24 pb-24">
+        <header className="flex flex-col gap-4 mb-8 px-1">
           <motion.button 
-            initial={{ opacity: 0, x: 20 }}
+            initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ type: "spring", stiffness: 380, damping: 30 }}
             onClick={() => {
               Haptic.light(hapticEnabled);
               onClose();
             }}
-            className="w-12 h-12 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/15 transition-all shadow-xl select-none"
+            className="w-10 h-10 bg-white/10 border border-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/15 transition-all select-none self-start"
           >
-            <Icons.ChevronLeft className="w-5.5 h-5.5 text-white" strokeWidth={2.5} />
+            <Icons.ChevronLeft className="w-5 h-5 text-white" strokeWidth={2.5} />
           </motion.button>
+          <h1 className="text-[34px] font-semibold text-white tracking-tight leading-tight">Manage Locations</h1>
         </header>
 
         <Reorder.Group 
-          values={locations} 
-          onReorder={onReorder}
+          values={localLocations} 
+          onReorder={(newLocs) => {
+            // Lock the location-based added city (isCurrentLocation = true) strictly as the first page/item
+            const currentLoc = newLocs.find(l => l.isCurrentLocation);
+            let finalLocations = [...newLocs];
+            if (currentLoc) {
+              const otherLocs = newLocs.filter(l => !l.isCurrentLocation);
+              finalLocations = [currentLoc, ...otherLocs];
+            }
+            setLocalLocations(finalLocations);
+          }}
           className="flex flex-col gap-3"
         >
-          {locations.map((loc, i) => (
-            <CityListItem
-              key={`${loc.latitude}-${loc.longitude}-${loc.name}`}
-              loc={loc}
-              index={i}
-              weather={weatherData[i]}
-              hapticEnabled={hapticEnabled}
-              isSelected={activeLocationIndex === i}
-              onSelect={onSelect}
-              onRemove={handleRemove}
-            />
-          ))}
+          {localLocations.map((loc) => {
+            const originalIndex = locations.findIndex(
+              l => l.latitude === loc.latitude && l.longitude === loc.longitude
+            );
+            const useIndex = originalIndex !== -1 ? originalIndex : 0;
+            return (
+              <CityListItem
+                key={`${loc.latitude}-${loc.longitude}-${loc.name}`}
+                loc={loc}
+                index={useIndex}
+                weather={weatherData[useIndex]}
+                hapticEnabled={hapticEnabled}
+                isSelected={activeLocationIndex === useIndex}
+                onSelect={onSelect}
+                onRemove={handleRemove}
+                onDragEnd={() => {
+                  onReorder(localLocations);
+                }}
+              />
+            );
+          })}
         </Reorder.Group>
 
         <button 
@@ -199,10 +241,6 @@ const CityManager = ({
           <Icons.Plus className="w-5 h-5 text-white/60" />
           <span>Add new city</span>
         </button>
-
-        <div className="mt-12 text-center">
-            <p className="text-[11px] font-bold tracking-[0.2em] uppercase text-white/20">Manage Locations</p>
-        </div>
       </div>
     </motion.div>
   );

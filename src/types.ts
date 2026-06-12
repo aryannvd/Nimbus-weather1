@@ -103,6 +103,7 @@ export interface Settings {
   alertNightSummary: boolean;
   oneSignalPlayerId?: string;
   backgroundGlow?: 'on' | 'off' | 'static';
+  language?: string; // e.g. 'en', 'es', 'de', etc.
   enabledTiles?: {
     aqi: boolean;
     uv: boolean;

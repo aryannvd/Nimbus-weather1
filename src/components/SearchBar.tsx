@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icons } from './WeatherIcons';
-import { searchLocations, reverseGeocode, fetchIPLocation } from '../services/weatherService';
+import { searchLocations, reverseGeocode, fetchIPLocation, getCountryCode } from '../services/weatherService';
 import { Location } from '../types';
 import debounce from 'lodash.debounce';
 import { motion, AnimatePresence } from 'motion/react';
@@ -217,9 +217,7 @@ export default function SearchBar({ onSelect, onClose, hapticEnabled }: SearchBa
                       )}
                     </div>
                     <span className="text-[13px] text-app-text-dim truncate">
-                      {loc.admin2 ? `${loc.admin2}, ` : ''}
-                      {loc.admin1 ? `${loc.admin1}, ` : ''}
-                      {loc.country}
+                      {loc.admin1 ? `${loc.admin1}, ` : ''}{loc.country}
                     </span>
                   </div>
                   <Icons.Plus className="w-5 h-5 text-app-text-dim/20" />

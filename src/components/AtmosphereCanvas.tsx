@@ -167,16 +167,8 @@ export default function AtmosphereCanvas({ weatherCode, isNight, settings }: Atm
         initParticles(weatherCode, isNight);
       }
 
-      // Manage random lightning flash in severe thunderstorms
-      if (weatherCode >= 95 && weatherCode <= 99) {
-        if (lightningFlash.current > 0) {
-          lightningFlash.current -= 0.12; // fade out fast
-        } else if (Math.random() < 0.003) { // random strike rate
-          lightningFlash.current = 0.6 + Math.random() * 0.4;
-        }
-      } else {
-        lightningFlash.current = 0;
-      }
+      // Manage random lightning flash in severe thunderstorms - disabled to avoid screen blinking
+      lightningFlash.current = 0;
 
       // 2. Clear & paint the custom hardware accelerated gradient
       ctx.clearRect(0, 0, w, h);
@@ -190,12 +182,8 @@ export default function AtmosphereCanvas({ weatherCode, isNight, settings }: Atm
       const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
       currentColors.current.forEach((color, idx) => {
         const stop = idx * 0.25; // 0, 0.25, 0.50, 0.75, 1.0
-        // Apply random lightning flash overlay if any
-        let rVal = Math.min(255, Math.max(0, color.r + lightningFlash.current * 90));
-        let gVal = Math.min(255, Math.max(0, color.g + lightningFlash.current * 110));
-        let bVal = Math.min(255, Math.max(0, color.b + lightningFlash.current * 140));
         
-        grad.addColorStop(stop, `rgb(${Math.round(rVal)},${Math.round(gVal)},${Math.round(bVal)})`);
+        grad.addColorStop(stop, `rgb(${Math.round(color.r)},${Math.round(color.g)},${Math.round(color.b)})`);
       });
 
       ctx.fillStyle = grad;

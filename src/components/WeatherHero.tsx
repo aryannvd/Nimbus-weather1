@@ -8,6 +8,7 @@ import { format, parseISO } from 'date-fns';
 import { RawIcons } from './WeatherIcons';
 import { cn } from '../lib/utils';
 import { Haptic } from '../lib/haptics';
+import { t, translateWmoCode } from '../lib/translations';
 
 interface WeatherHeroProps {
   weather: WeatherData;
@@ -133,11 +134,11 @@ export default function WeatherHero({ weather, location, settings, onRefresh, is
           transition={slideTransition}
           className="flex flex-col items-center gap-2 mt-4"
         >
-          <span className="text-xl font-medium text-app-text/90">{info.label}</span>
+          <span className="text-xl font-medium text-app-text/90">{translateWmoCode(weather.current.weatherCode, settings.language || 'en')}</span>
           <div className="flex items-center gap-3 text-app-text-dim text-[14px] font-medium tracking-wide">
-            <span>H: {formatTemp(weather.daily.temperatureMax?.[0] ?? 0, settings.unitTemp)}°</span>
+            <span>{t('max', settings.language)}: {formatTemp(weather.daily.temperatureMax?.[0] ?? 0, settings.unitTemp)}°</span>
             <span className="w-1 h-1 bg-app-border rounded-full" />
-            <span>L: {formatTemp(weather.daily.temperatureMin?.[0] ?? 0, settings.unitTemp)}°</span>
+            <span>{t('min', settings.language)}: {formatTemp(weather.daily.temperatureMin?.[0] ?? 0, settings.unitTemp)}°</span>
           </div>
         </motion.div>
       </div>

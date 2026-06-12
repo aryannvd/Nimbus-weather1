@@ -110,9 +110,7 @@ input, textarea, [contenteditable="true"] {
 .sun-arc,
 .compass,
 .wind-arrow,
-.aqi-bar,
-[class*="card"],
-[class*="container"] {
+.aqi-bar {
   -webkit-transform: translateZ(0);
   transform: translateZ(0);
   will-change: transform;
@@ -376,7 +374,6 @@ select,
 .sun-rays,
 .lightning,
 .fog-layer,
-[class*="animate"],
 [class*="particle"],
 [class*="weather-fx"],
 [class*="atmosphere"],
@@ -394,8 +391,7 @@ select,
 /* Contain properties */
 .atmosphere,
 [class*="weather-fx"],
-[class*="particle"],
-[class*="animate"] {
+[class*="particle"] {
   contain: strict !important;
   isolation: isolate !important;
 }

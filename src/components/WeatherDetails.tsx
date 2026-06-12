@@ -1,11 +1,39 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { WeatherData, Settings } from '../types';
 import { RawIcons, WeatherIcon } from './WeatherIcons';
 import { cn, GLASS_STYLE_SUBTLE } from '../lib/utils';
 import { formatTemp, formatWind, formatVisibility, formatPrecipitation } from '../lib/units';
 import { format, parseISO } from 'date-fns';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { getCurrentHourIndex } from '../services/weatherService';
+
+const POLLUTANT_DETAILS: Record<string, { name: string; desc: string; hazard: string }> = {
+  'PM2.5': {
+    name: 'Fine Particulates (PM2.5)',
+    desc: 'Fine inhalable particles from combustion, smoke, and industrial emissions. They can go deep into lungs and bloodstreams.',
+    hazard: 'High risk of respiratory and cardiovascular issues upon long-term exposure.'
+  },
+  'PM10': {
+    name: 'Coarse Particulates (PM10)',
+    desc: 'Coarser dust, pollen, and mold particles that affect nasal and airway passageways.',
+    hazard: 'Can cause cough, respiratory irritation, and worsen asthma or lung infections.'
+  },
+  'CO': {
+    name: 'Carbon Monoxide (CO)',
+    desc: 'Colorless, odorless gas primarily from heating and vehicle exhaust. Reduces oxygen delivery in body tissues.',
+    hazard: 'May trigger headaches, fatigue, dizziness, and compromised cardio-pulmonary transport.'
+  },
+  'NO₂': {
+    name: 'Nitrogen Dioxide (NO₂)',
+    desc: 'Highly reactive gas from traffic exhaust. Strongly correlated to lower lung defenses and airway inflammation.',
+    hazard: 'Aggravates asthma, decreases infection vulnerability, and impairs lung function.'
+  },
+  'O₃': {
+    name: 'Ground-Level Ozone (O₃)',
+    desc: 'Formed through reactions of pollutants under hot sunlight. Strong gaseous irritant to eye/throat linings.',
+    hazard: 'Inhaling ozone triggers immediate chest tightness, throat irritation, and breathing discomfort.'
+  }
+};
 
 interface AQISparklineProps {
   trend?: { time: string; aqi: number }[];
@@ -161,6 +189,7 @@ interface WeatherDetailsProps {
 export default function WeatherDetails({ weather, settings }: WeatherDetailsProps) {
   if (!weather || !weather.current) return null;
   const aqi = weather.airQuality;
+  const [selectedPollutantIndex, setSelectedPollutantIndex] = useState<number | null>(null);
   
   const currentIdx = getCurrentHourIndex(weather.timezone, weather.hourly?.time || []);
   const rainChance = weather.hourly.precipitationProbability?.[currentIdx] ?? 0;
@@ -340,27 +369,100 @@ export default function WeatherDetails({ weather, settings }: WeatherDetailsProp
                     </p>
                   </div>
                   
-                  <div className="grid grid-cols-5 gap-3 pt-5 mt-5 border-t border-app-border/30">
+                  <div className="grid grid-cols-5 gap-1 pt-5 mt-5 border-t border-app-border/30">
                     {[
                       { label: 'PM2.5', value: aqi.pm2_5, unit: 'µg/m³' },
                       { label: 'PM10', value: aqi.pm10, unit: 'µg/m³' },
                       { label: 'CO', value: aqi.co, unit: 'µg/m³' },
-                      { label: 'NO₂', value: aqi.no2, unit: 'nitrogen_dioxide' }, // Wait, keeping original values or p.label but safe mapping
+                      { label: 'NO₂', value: aqi.no2, unit: 'nitrogen_dioxide' },
                       { label: 'O₃', value: aqi.o3, unit: 'µg/m³' }
                     ].map((p, i) => {
-                      // Let's use clean labeling
-                      const unitStr = p.label === 'NO₂' ? 'µg/m³' : p.unit; // Preserve original PM units and safe fallback
+                      const unitStr = p.label === 'NO₂' ? 'µg/m³' : p.unit;
+                      const isSelected = selectedPollutantIndex === i;
+                      const hasSelection = selectedPollutantIndex !== null;
                       return (
-                        <div key={i} className="flex flex-col gap-1.5">
-                          <span className="text-[9px] font-black text-app-text-dim/50 uppercase tracking-[0.05em] truncate">{p.label}</span>
+                        <button
+                          key={i}
+                          onClick={() => setSelectedPollutantIndex(isSelected ? null : i)}
+                          className={cn(
+                            "relative flex flex-col gap-1 p-2 pt-3.5 pb-2 rounded-lg text-left transition-all duration-350 outline-none select-none",
+                            hasSelection
+                              ? isSelected
+                                ? "opacity-100 scale-100 text-white"
+                                : "opacity-35 scale-[0.96] text-white/70"
+                              : "opacity-85 hover:opacity-100 text-white/90"
+                          )}
+                        >
+                          {isSelected && (
+                            <>
+                              {/* Constant Solid White Top Bar */}
+                              <div className="absolute top-0 left-2.5 right-2.5 h-[3px] bg-white rounded-b-full z-10" />
+
+                              {/* Gentle spreading white ambient light graphic (spreading in and out) */}
+                              <motion.div
+                                className="absolute top-0 left-0 right-0 h-full bg-gradient-to-b from-white/18 via-white/[0.04] to-transparent pointer-events-none rounded-t-lg"
+                                initial={{ opacity: 0.25, scaleY: 0.92 }}
+                                animate={{ 
+                                  opacity: [0.25, 0.65, 0.25],
+                                  scaleY: [0.92, 1.08, 0.92] 
+                                }}
+                                transition={{
+                                  repeat: Infinity,
+                                  duration: 3.2,
+                                  ease: "easeInOut"
+                                }}
+                                style={{ transformOrigin: "top" }}
+                              />
+                            </>
+                          )}
+                          <span className="text-[10px] font-bold text-app-text-dim/55 uppercase tracking-wide whitespace-nowrap">{p.label}</span>
                           <div className="flex flex-col">
-                            <span className="text-[16px] font-bold text-app-text tracking-tighter leading-none">{Math.round(p.value || 0)}</span>
-                            <span className="text-[9px] text-app-text-dim/60 font-bold leading-tight mt-0.5">{unitStr}</span>
+                            <span className="text-[15px] font-bold text-app-text tracking-tighter leading-none">{Math.round(p.value || 0)}</span>
+                            <span className="text-[8.5px] text-app-text-dim/60 font-medium leading-tight mt-0.5">{unitStr}</span>
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
+
+                  <AnimatePresence>
+                    {selectedPollutantIndex !== null && (() => {
+                      const activeP = [
+                        { label: 'PM2.5', value: aqi.pm2_5, unit: 'µg/m³' },
+                        { label: 'PM10', value: aqi.pm10, unit: 'µg/m³' },
+                        { label: 'CO', value: aqi.co, unit: 'µg/m³' },
+                        { label: 'NO₂', value: aqi.no2, unit: 'nitrogen_dioxide' },
+                        { label: 'O₃', value: aqi.o3, unit: 'µg/m³' }
+                      ][selectedPollutantIndex];
+                      
+                      const pDef = POLLUTANT_DETAILS[activeP.label];
+
+                      return (
+                        <motion.div
+                          key={`pollutant-info-${selectedPollutantIndex}`}
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.12, ease: "easeInOut" }}
+                          className="relative overflow-hidden"
+                        >
+                          <div className="relative pt-3 mt-2">
+                            <div className="px-1 py-2 flex flex-col gap-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[13px] font-semibold text-white/95 tracking-tight">{pDef?.name}</span>
+                                <span className="text-[11px] font-medium text-app-text-dim/80">{Math.round(activeP.value || 0)} {activeP.label === 'NO₂' ? 'µg/m³' : activeP.unit}</span>
+                              </div>
+                              <p className="text-[11px] text-app-text-dim/80 leading-[1.5]">{pDef?.desc}</p>
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[9px] font-black uppercase text-orange-400 tracking-wider">Health Effect</span>
+                                <p className="text-[11px] text-orange-200/80 leading-[1.4]">{pDef?.hazard}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })()}
+                  </AnimatePresence>
                 </div>
               )}
             </>

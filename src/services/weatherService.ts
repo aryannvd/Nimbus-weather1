@@ -711,6 +711,197 @@ export async function fetchWeather(lat: number, lon: number, timezone: string, c
 
 // --- Geocoding (Direct Free APIs without Keys) ---
 
+export function getCountryCode(countryName: string): string {
+  if (!countryName) return "";
+  const cleaned = countryName.trim().toLowerCase();
+  
+  const COUNTRY_TO_CODE: Record<string, string> = {
+    "india": "IN",
+    "united states": "US",
+    "united states of america": "US",
+    "united kingdom": "GB",
+    "canada": "CA",
+    "australia": "AU",
+    "germany": "DE",
+    "france": "FR",
+    "italy": "IT",
+    "spain": "ES",
+    "japan": "JP",
+    "china": "CN",
+    "brazil": "BR",
+    "russia": "RU",
+    "south africa": "ZA",
+    "singapore": "SG",
+    "mexico": "MX",
+    "netherlands": "NL",
+    "switzerland": "CH",
+    "sweden": "SE",
+    "norway": "NO",
+    "denmark": "DK",
+    "finland": "FI",
+    "belgium": "BE",
+    "austria": "AT",
+    "new zealand": "NZ",
+    "ireland": "IE",
+    "united arab emirates": "AE",
+    "uae": "AE",
+    "saudi arabia": "SA",
+    "turkey": "TR",
+    "indonesia": "ID",
+    "thailand": "TH",
+    "malaysia": "MY",
+    "philippines": "PH",
+    "vietnam": "VN",
+    "south korea": "KR",
+    "argentina": "AR",
+    "colombia": "CO",
+    "chile": "CL",
+    "egypt": "EG",
+    "greece": "GR",
+    "portugal": "PT",
+    "poland": "PL",
+    "ukraine": "UA",
+    "pakistan": "PK",
+    "bangladesh": "BD",
+    "nigeria": "NG",
+    "kenya": "KE",
+    "morocco": "MA",
+    "hong kong": "HK",
+    "taiwan": "TW",
+    "israel": "IL",
+    "nepal": "NP"
+  };
+
+  if (COUNTRY_TO_CODE[cleaned]) {
+    return COUNTRY_TO_CODE[cleaned];
+  }
+  if (countryName.length <= 3) {
+    return countryName.toUpperCase();
+  }
+  return countryName.slice(0, 2).toUpperCase();
+}
+
+export function simplifyAdminName(admin: string, country?: string): string {
+  if (!admin) return "";
+  let name = admin.trim();
+  const lower = name.toLowerCase();
+
+  // If search query is Delhi or includes Delhi-like capital territories
+  if (
+    lower.includes("national capital territory") || 
+    lower === "nct" || 
+    lower === "national capital region" ||
+    lower.includes("nct of delhi") ||
+    lower.includes("n.c.t.")
+  ) {
+    return "Capital";
+  }
+
+  if (lower === "delhi") {
+    return "Capital";
+  }
+
+  // standard replacements
+  const prefixes = [
+    "state of ",
+    "province of ",
+    "region of ",
+    "governorate of ",
+    "prefecture of ",
+    "department of "
+  ];
+  for (const p of prefixes) {
+    if (lower.startsWith(p)) {
+      name = name.slice(p.length).trim();
+      break;
+    }
+  }
+
+  return name;
+}
+
+export function simplifyCountryName(country: string): string {
+  if (!country) return "";
+  let name = country.trim();
+  
+  // Handlers for specific common replacements
+  const lower = name.toLowerCase();
+  if (lower === "united states of america" || lower === "united states") {
+    return "United States";
+  }
+  if (lower === "united kingdom of great britain and northern ireland" || lower === "united kingdom") {
+    return "United Kingdom";
+  }
+  if (lower === "united arab emirates") {
+    return "UAE";
+  }
+  if (lower === "russian federation") {
+    return "Russia";
+  }
+  if (lower.includes("democratic republic of the congo") || lower === "dr congo" || lower === "drc") {
+    return "DR Congo";
+  }
+  if (lower === "republic of the congo") {
+    return "Congo";
+  }
+  if (lower === "peoples republic of china" || lower === "people's republic of china") {
+    return "China";
+  }
+  if (lower === "islamic republic of iran") {
+    return "Iran";
+  }
+  if (lower === "syrian arab republic") {
+    return "Syria";
+  }
+  if (lower === "republic of india") {
+    return "India";
+  }
+  if (lower === "republic of korea" || lower === "south korea") {
+    return "South Korea";
+  }
+  if (lower === "democratic people's republic of korea" || lower === "north korea") {
+    return "North Korea";
+  }
+  
+  // General trimming of prefix phrases
+  const prefixes = [
+    "republic of the ",
+    "republic of ",
+    "kingdom of ",
+    "federated states of ",
+    "independent state of ",
+    "state of ",
+    "commonwealth of ",
+    "federal republic of ",
+    "hashemite kingdom of ",
+    "grand duchy of ",
+    "principality of ",
+    "sultanate of ",
+    "union of "
+  ];
+  
+  for (const prefix of prefixes) {
+    if (lower.startsWith(prefix)) {
+      name = name.slice(prefix.length).trim();
+      break;
+    }
+  }
+
+  // General trimming of suffixes
+  const suffixes = [
+    ", Republic of",
+    ", Kingdom of"
+  ];
+  for (const suffix of suffixes) {
+    if (lower.endsWith(suffix.toLowerCase())) {
+      name = name.slice(0, name.length - suffix.length).trim();
+      break;
+    }
+  }
+
+  return name;
+}
+
 export async function searchLocations(query: string): Promise<Location[]> {
   if (query.length < 2) return [];
   try {
@@ -724,8 +915,8 @@ export async function searchLocations(query: string): Promise<Location[]> {
       name: item.name,
       latitude: item.latitude,
       longitude: item.longitude,
-      country: item.country,
-      admin1: item.admin1,
+      country: simplifyCountryName(item.country || ""),
+      admin1: simplifyAdminName(item.admin1 || "", item.country || ""),
       admin2: item.admin2,
       timezone: item.timezone || 'auto',
     }));
@@ -749,7 +940,7 @@ export async function fetchIPLocation(): Promise<{ lat: number; lon: number; cit
           lat: Number(data.latitude),
           lon: Number(data.longitude),
           cityName: data.cityName,
-          country: data.countryName || 'Nearby',
+          country: simplifyCountryName(data.countryName || 'Nearby'),
           timezone: data.timeZone || 'auto'
         };
       }
@@ -769,7 +960,7 @@ export async function fetchIPLocation(): Promise<{ lat: number; lon: number; cit
           lat: Number(data.latitude),
           lon: Number(data.longitude),
           cityName: data.city,
-          country: data.country || 'Nearby',
+          country: simplifyCountryName(data.country || 'Nearby'),
           timezone: data.timezone?.id || 'auto'
         };
       }
@@ -789,7 +980,7 @@ export async function fetchIPLocation(): Promise<{ lat: number; lon: number; cit
           lat: Number(data.latitude),
           lon: Number(data.longitude),
           cityName: data.city,
-          country: data.country_name || 'Nearby',
+          country: simplifyCountryName(data.country_name || 'Nearby'),
           timezone: data.timezone || 'auto'
         };
       }
@@ -811,13 +1002,13 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Partial<
       const data = await response.json();
       if (data && data.features && data.features.length > 0) {
         const props = data.features[0].properties || {};
-        const name = props.city || props.town || props.village || props.locality || props.district || props.name;
+        const name = props.district || props.locality || props.suburb || props.village || props.town || props.city || props.name;
         if (name && name.trim().toLowerCase() !== 'unnamed road') {
-          console.log('[PhotonGeocoding] Found city:', name);
+          console.log('[PhotonGeocoding] Found closest city/locality:', name);
           return {
             name,
-            country: props.country || "",
-            admin1: props.state || ""
+            country: simplifyCountryName(props.country || ""),
+            admin1: simplifyAdminName(props.state || "")
           };
         }
       }
@@ -833,21 +1024,22 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Partial<
     const response = await fetchWithTimeout(url, {}, 4000, 0);
     if (response.ok) {
       const item = await response.json();
-      let name = item.city || item.locality;
-      if (!name && item.localityInfo?.administrative) {
-        // Look for city/town levels in the admin sequence
+      let name = item.locality || item.city;
+      if (item.localityInfo?.administrative) {
+        // Look for the most detailed levels in the admin sequence (highest order is most specific)
         const adminList = item.localityInfo.administrative;
-        const cityObj = adminList.find((a: any) => a.order === 6 || a.order === 7 || a.order === 8);
-        if (cityObj) name = cityObj.name;
+        const sortedAdmin = [...adminList].sort((a: any, b: any) => (b.order || 0) - (a.order || 0));
+        const localObj = sortedAdmin.find((a: any) => a.order >= 6 && a.order <= 10 && a.name);
+        if (localObj) name = localObj.name;
       }
       if (!name) name = item.principalSubdivision;
 
       if (name) {
-        console.log('[BackupGeocoding] Found city:', name);
+        console.log('[BackupGeocoding] Found closest city/locality:', name);
         return {
           name,
-          country: item.countryName || "",
-          admin1: item.principalSubdivision || ""
+          country: simplifyCountryName(item.countryName || ""),
+          admin1: simplifyAdminName(item.principalSubdivision || "")
         };
       }
     }
@@ -867,13 +1059,13 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Partial<
     if (response.ok) {
       const item = await response.json();
       const addr = item.address || {};
-      const name = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || addr.county;
+      const name = addr.neighbourhood || addr.suburb || addr.village || addr.town || addr.city || addr.municipality || addr.county;
       if (name) {
-        console.log('[RateLimiter] Found city:', name);
+        console.log('[RateLimiter] Found closest city/locality:', name);
         return {
           name,
-          country: addr.country || "",
-          admin1: addr.state || ""
+          country: simplifyCountryName(addr.country || ""),
+          admin1: simplifyAdminName(addr.state || "")
         };
       }
     }
@@ -889,7 +1081,7 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Partial<
       console.log('[ReverseGeocodeIPFallback] Resolved via IP Fallback:', ipLoc.cityName);
       return {
         name: ipLoc.cityName,
-        country: ipLoc.country,
+        country: simplifyCountryName(ipLoc.country),
         admin1: ""
       };
     }
@@ -1789,4 +1981,47 @@ export function getFallbackWeatherData(lat: number, lon: number, timezone: strin
     timezone: resolvedTimezone,
   };
 }
+
+/**
+ * Generate precise prefetch endpoints for Open-Meteo, Air Quality and WAQI
+ * so they can be dispatched to the Service Worker ahead of card transition swipes.
+ */
+export function getPrefetchUrls(lat: number, lon: number, cityName: string): string[] {
+  const token = import.meta.env.VITE_WAQI_TOKEN || "demo";
+  const slug = cityName.toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+
+  const forecastUrl = 
+    `https://api.open-meteo.com/v1/forecast` +
+    `?latitude=${lat}` +
+    `&longitude=${lon}` +
+    `&current=temperature_2m,relative_humidity_2m,` +
+    `apparent_temperature,weather_code,` +
+    `wind_speed_10m,wind_direction_10m,` +
+    `surface_pressure,precipitation,visibility` +
+    `&hourly=temperature_2m,weather_code,` +
+    `precipitation_probability,precipitation,` +
+    `wind_speed_10m,visibility,uv_index,` +
+    `relative_humidity_2m` +
+    `&daily=weather_code,temperature_2m_max,` +
+    `temperature_2m_min,sunrise,sunset,` +
+    `precipitation_probability_max,` +
+    `wind_speed_10m_max,uv_index_max,` +
+    `precipitation_sum` +
+    `&timezone=auto` +
+    `&wind_speed_unit=ms` +
+    `&forecast_days=8`;
+
+  const openMeteoAqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}` +
+    `&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,ozone,sulphur_dioxide,us_aqi` +
+    `&hourly=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,ozone,sulphur_dioxide,us_aqi` +
+    `&timezone=auto`;
+
+  const waqiGeoUrl = `https://api.waqi.info/feed/geo:${lat};${lon}/?token=${token}`;
+  const waqiSlugUrl = `https://api.waqi.info/feed/${slug}/?token=${token}`;
+
+  return [forecastUrl, openMeteoAqiUrl, waqiGeoUrl, waqiSlugUrl];
+}
+
 

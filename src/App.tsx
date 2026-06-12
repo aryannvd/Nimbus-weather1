@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { formatTemp } from './lib/units';
 import { Location, WeatherData, WeatherState, Settings } from './types';
-import { fetchWeather, fetchWeatherBulk, getMoonPhaseInfo, getCurrentHourIndex, reverseGeocode, getCurrentWeatherState, getAQIDataWithFallback, getDataAgeHours, getAQIFromCacheOrLive, fetchIPLocation } from './services/weatherService';
+import { fetchWeather, fetchWeatherBulk, getMoonPhaseInfo, getCurrentHourIndex, reverseGeocode, getCurrentWeatherState, getAQIDataWithFallback, getDataAgeHours, getAQIFromCacheOrLive, fetchIPLocation, getPrefetchUrls } from './services/weatherService';
 import { getCachedWeatherData, saveWeatherData, STORAGE_KEYS, getCityKey, CACHE_EXPIRY } from './lib/storage';
 import { initGestures } from './lib/gestures';
 import WeatherSkeleton from './components/WeatherSkeleton';
@@ -48,7 +48,7 @@ const INITIAL_SETTINGS: Settings = {
   alertRain: true,
   alertSevere: true,
   alertTrip: true,
-  alertDaily: true,
+  alertDaily: false,
   alertRealtime: false,
   timeFormat: '12h',
   pushEnabled: false,
@@ -1166,14 +1166,15 @@ export default function App() {
       if (hasSaved && LocationState.cityName && LocationState.cityName !== "Current Location") {
         addCurrentLocationPageFromCache();
         setTimeout(async () => {
-          await fetchCurrentLocation(true);
+          const isGranted = await isLocationPermissionOn();
+          if (isGranted) {
+            await fetchCurrentLocation(true);
+          }
         }, 2000);
         startLocationRefresh();
       } else {
-        await fetchCurrentLocation(false);
-        if (LocationState.hasLocation) {
-          startLocationRefresh();
-        }
+        // Do not query geolocation on startup; wait until user clicks the button on Welcome page.
+        console.log("Onboarding: waiting for user to click Enable Location on Welcome page.");
       }
     } else {
       // Subsequent openings: Just scan if the location is on/off
@@ -1817,10 +1818,18 @@ export default function App() {
   };
 
   const reorderLocations = (newLocations: Location[]) => {
+    // Lock the location-based added city (isCurrentLocation = true) strictly as the first page/item
+    const currentLoc = newLocations.find(l => l.isCurrentLocation);
+    let finalLocations = [...newLocations];
+    if (currentLoc) {
+      const otherLocs = newLocations.filter(l => !l.isCurrentLocation);
+      finalLocations = [currentLoc, ...otherLocs];
+    }
+
     setState(prev => {
       // Rebuild weather data map based on new order
       const newWeatherData: Record<number, WeatherData> = {};
-      newLocations.forEach((loc, i) => {
+      finalLocations.forEach((loc, i) => {
         const oldIndex = prev.locations.findIndex(l => l.name === loc.name && l.latitude === loc.latitude);
         if (oldIndex !== -1 && prev.weatherData[oldIndex]) {
           newWeatherData[i] = prev.weatherData[oldIndex];
@@ -1829,7 +1838,7 @@ export default function App() {
 
       return {
         ...prev,
-        locations: newLocations,
+        locations: finalLocations,
         weatherData: newWeatherData
       };
     });
@@ -1911,6 +1920,47 @@ export default function App() {
     localStorage.setItem('app_locations', JSON.stringify(state.locations));
     localStorage.setItem('app_active_index', state.activeLocationIndex.toString());
   }, [state.settings, state.locations, state.activeLocationIndex]);
+
+  // Service Worker pre-fetching strategy for adjacent cities in the swipe sequence
+  useEffect(() => {
+    if ('serviceWorker' in navigator && state.locations.length > 1) {
+      const len = state.locations.length;
+      const nextIdx = (state.activeLocationIndex + 1) % len;
+      const prevIdx = (state.activeLocationIndex - 1 + len) % len;
+
+      const nextCity = state.locations[nextIdx];
+      const prevCity = state.locations[prevIdx];
+
+      const urls: string[] = [];
+      if (nextCity) {
+        urls.push(...getPrefetchUrls(nextCity.latitude, nextCity.longitude, nextCity.name));
+      }
+      if (prevCity) {
+        urls.push(...getPrefetchUrls(prevCity.latitude, prevCity.longitude, prevCity.name));
+      }
+
+      if (urls.length > 0) {
+        const sendMsg = (worker: ServiceWorker) => {
+          worker.postMessage({
+            type: "PREFETCH_WEATHER",
+            urls: urls
+          });
+        };
+
+        if (navigator.serviceWorker.controller) {
+          sendMsg(navigator.serviceWorker.controller);
+        } else {
+          navigator.serviceWorker.ready.then(reg => {
+            if (reg.active) {
+              sendMsg(reg.active);
+            }
+          }).catch(err => {
+            console.warn("SW ready failed:", err);
+          });
+        }
+      }
+    }
+  }, [state.activeLocationIndex, state.locations]);
 
   const activeWeather = state.weatherData[state.activeLocationIndex];
   const activeLocation = state.locations[state.activeLocationIndex];
@@ -2168,7 +2218,9 @@ export default function App() {
       }
     };
 
-    SafeNotif.init().catch(() => {});
+    if (state.locations.length >= 1) {
+      SafeNotif.init().catch(() => {});
+    }
     const interval = setInterval(checkNotification, 60000); 
     return () => clearInterval(interval);
   }, [activeWeather, state.settings.notificationTime, state.settings.alertDaily, state.settings.unitTemp]);
@@ -2182,6 +2234,7 @@ export default function App() {
   // Back button handling logic
   const panelStackRef = useRef<(() => void)[]>([]);
   const panelNamesRef = useRef<string[]>([]);
+  const lastSwipeTimeRef = useRef<number>(0);
 
   useEffect(() => {
     // 1. Initialize on app start: Push an initial state so the first back press doesn't immediately exit
@@ -2329,6 +2382,12 @@ export default function App() {
   };
 
   const handleSwipe = (direction: 'left' | 'right') => {
+    const now = Date.now();
+    if (now - lastSwipeTimeRef.current < 450) {
+      return;
+    }
+    lastSwipeTimeRef.current = now;
+
     Haptic.light(state.settings.hapticEnabled);
     setSlideDirection(direction);
     
@@ -2725,19 +2784,27 @@ export default function App() {
 
             {/* City Name & Pagination - Center */}
             <div className="absolute top-8 flex flex-col items-center pointer-events-none mt-2" style={{ left: '50%', transform: 'translateX(-50%)' }}>
-              <AnimatePresence mode="popLayout">
-                {state.locations.length > 0 && !state.showSettings && !showCityManager && !showRadarMap && (
+              <AnimatePresence mode="wait">
+                {state.locations.length > 0 && (
                   <motion.div 
                     key={`city-header-${state.activeLocationIndex}`}
                     initial={{ opacity: 0, scale: 0.96, y: 3 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    animate={{ 
+                      opacity: (state.showSettings || showCityManager || showRadarMap) ? 0 : 1, 
+                      scale: (state.showSettings || showCityManager || showRadarMap) ? 0.96 : 1, 
+                      y: (state.showSettings || showCityManager || showRadarMap) ? -3 : 0 
+                    }}
                     exit={{ opacity: 0, scale: 0.96, y: -3 }}
                     transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
                     className="flex flex-col items-center justify-center"
                   >
                     <div className="flex items-center justify-center relative pointer-events-auto select-none gap-1.5">
                       <div className="flex items-center gap-1.5">
-                        {activeLocation?.isCurrentLocation && <span id="location-pin-icon" className="text-[14px]">📌</span>}
+                        {activeLocation?.isCurrentLocation && (
+                          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-white/95 shrink-0" fill="currentColor">
+                            <path fillRule="evenodd" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" clipRule="evenodd" />
+                          </svg>
+                        )}
                         <span id="city-name" className="text-[17px] font-semibold text-white/95">{activeLocation?.name || 'Loading...'}</span>
                       </div>
                       <div className="absolute left-full ml-1.5 flex items-center justify-center">
@@ -2777,27 +2844,29 @@ export default function App() {
                       </motion.div>
                     )}
 
-                    <div id="city-dots" className="flex gap-1.5 mt-1.5">
-                      {state.locations.map((_, i) => (
-                        <button 
-                          key={i} 
-                          onClick={() => {
-                            if (state.activeLocationIndex !== i) {
-                              Haptic.light(state.settings.hapticEnabled);
-                              const dir = i > state.activeLocationIndex ? 'left' : 'right';
-                              setSlideDirection(dir);
-                              switchToCity(i);
-                            }
-                          }}
-                          className={cn(
-                            "w-1.5 h-1.5 rounded-full transition-all duration-300 pointer-events-auto",
-                            state.activeLocationIndex === i 
-                              ? "bg-white w-5 shadow-[0_0_8px_rgba(255,255,255,0.3)]" 
-                              : "bg-white/40 hover:bg-white/60"
-                          )} 
-                        />
-                      ))}
-                    </div>
+                    {state.locations.length > 1 && (
+                      <div id="city-dots" className="flex gap-1.5 mt-1.5">
+                        {state.locations.map((_, i) => (
+                          <button 
+                            key={i} 
+                            onClick={() => {
+                              if (state.activeLocationIndex !== i) {
+                                Haptic.light(state.settings.hapticEnabled);
+                                const dir = i > state.activeLocationIndex ? 'left' : 'right';
+                                setSlideDirection(dir);
+                                switchToCity(i);
+                              }
+                            }}
+                            className={cn(
+                              "w-1.5 h-1.5 rounded-full transition-all duration-300 pointer-events-auto",
+                              state.activeLocationIndex === i 
+                                ? "bg-white w-5 shadow-[0_0_8px_rgba(255,255,255,0.3)]" 
+                                : "bg-white/40 hover:bg-white/60"
+                            )} 
+                          />
+                        ))}
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>

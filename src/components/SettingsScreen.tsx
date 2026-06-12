@@ -222,7 +222,7 @@ const SliderRow = ({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
             className="overflow-hidden"
           >
             <div className="px-5 pb-6 pt-1">
@@ -544,11 +544,11 @@ const SettingsScreen = ({
   const subViews = {
     agreement: {
       title: "Terms of Use",
-      content: `Last Updated: June 2026\n\nBy using Nimbus Black, you agree to the following terms.\n\n## Informational Use Only\n\nWeather information, forecasts, alerts, radar imagery, and environmental data are provided for informational purposes only.\n\nForecasting is inherently uncertain and conditions may change rapidly.\n\n## No Guarantee of Accuracy\n\nNimbus Black and its data providers do not guarantee the accuracy, completeness, availability, or timeliness of any information displayed within the application.\n\n## Not for Critical Safety Decisions\n\nThe application should not be relied upon for:\n- Aviation operations\n- Maritime navigation\n- Emergency management\n- Disaster response\n- Life-safety decisions\n- Any activity where inaccurate weather information could result in injury, damage, or loss\n\nAlways consult official government meteorological agencies when safety-critical decisions are involved.\n\n## Service Availability\n\nThe application depends on third-party data providers and internet connectivity.\n\nFeatures, services, data sources, and availability may change without notice.\n\nTemporary outages may occur due to maintenance, infrastructure issues, or provider interruptions.\n\n## Open Source Software\n\nNimbus Black is provided as open-source software and may be modified, forked, or redistributed according to the project's license.\n\n## Disclaimer of Warranties\n\nThe application is provided "as is" and "as available" without warranties of any kind, express or implied.\n\n## Limitation of Liability\n\nTo the maximum extent permitted by applicable law, Nimbus Black and its contributors shall not be liable for any direct, indirect, incidental, consequential, or special damages arising from the use of, or inability to use, the application.\n\n## Acceptance of Terms\n\nBy using Nimbus Black, you acknowledge that you have read and agree to these Terms of Use.`
+      content: `Last Updated: June 2026\n\nBy using Nimbus Black, you agree to the following terms.\n\n## Informational Use Only\n\nWeather information, forecasts, alerts, radar imagery, and environmental data are provided for informational purposes only.\n\nForecasting is inherently uncertain and conditions may change rapidly.\n\n## No Guarantee of Accuracy\n\nNimbus Black and its data providers do not guarantee the accuracy, completeness, availability, or timeliness of any information displayed within the application.\n\n## Not for Critical Safety Decisions\n\nThe application should not be relied upon for:\n• Aviation operations\n• Maritime navigation\n• Emergency management\n• Disaster response\n• Life-safety decisions\n• Any activity where inaccurate weather information could result in injury, damage, or loss\n\nAlways consult official government meteorological agencies when safety-critical decisions are involved.\n\n## Service Availability\n\nThe application depends on third-party data providers and internet connectivity.\n\nFeatures, services, data sources, and availability may change without notice.\n\nTemporary outages may occur due to maintenance, infrastructure issues, or provider interruptions.\n\n## Open Source Software\n\nNimbus Black is provided as open-source software and may be modified, forked, or redistributed according to the project's license.\n\n## Disclaimer of Warranties\n\nThe application is provided "as is" and "as available" without warranties of any kind, express or implied.\n\n## Limitation of Liability\n\nTo the maximum extent permitted by applicable law, Nimbus Black and its contributors shall not be liable for any direct, indirect, incidental, consequential, or special damages arising from the use of, or inability to use, the application.\n\n## Acceptance of Terms\n\nBy using Nimbus Black, you acknowledge that you have read and agree to these Terms of Use.`
     },
     privacy: {
       title: "Privacy Policy",
-      content: `Last Updated: June 2026\n\nNimbus Black is designed with a privacy-first approach. The application does not require user accounts, subscriptions, or personal information to function.\n\n## What Data Is Used\n\nTo provide weather forecasts, radar imagery, alerts, and environmental information, the application may access:\n- Your selected locations\n- Device location (only when permission is granted)\n- Application preferences and settings\n\nThis information is used solely to provide weather-related functionality.\n\n## Local-First Storage\n\nYour preferences, saved locations, units, themes, and alert settings are stored locally on your device using browser storage.\n\nNimbus Black does not operate user accounts and does not maintain a database of user profiles.\n\n## Third-Party Weather Services\n\nWeather forecasts, alerts, and environmental data are obtained from third-party providers such as Open-Meteo and related meteorological data sources.\n\nWhen weather information is requested, certain data such as your approximate IP address or requested coordinates may be processed by these providers according to their own privacy policies.\n\nNimbus Black does not control how third-party providers process data.\n\n## Analytics and Tracking\n\n- No user accounts\n- No advertising networks\n- No behavioral profiling\n- No sale of personal data\n- No third-party tracking libraries\n\nThe application does not intentionally collect personal information for marketing or advertising purposes.\n\n## Your Data\n\nYou remain in control of your data.\n\nRemoving saved locations, clearing browser storage, uninstalling the PWA, or clearing site data will remove locally stored application information.\n\n## Open Source\n\nNimbus Black is an open-source project. The source code is publicly available for inspection, review, and contribution under the project's license.\n\n## Changes\n\nThis Privacy Policy may be updated occasionally to reflect changes in functionality or service providers. Continued use of the application constitutes acceptance of the updated policy.`
+      content: `Last Updated: June 2026\n\nNimbus Black is designed with a privacy-first approach. The application does not require user accounts, subscriptions, or personal information to function.\n\n## What Data Is Used\n\nTo provide weather forecasts, radar imagery, alerts, and environmental information, the application may access:\n• Your selected locations\n• Device location (only when permission is granted)\n• Application preferences and settings\n\nThis information is used solely to provide weather-related functionality.\n\n## Local-First Storage\n\nYour preferences, saved locations, units, themes, and alert settings are stored locally on your device using browser storage.\n\nNimbus Black does not operate user accounts and does not maintain a database of user profiles.\n\n## Third-Party Weather Services\n\nWeather forecasts, alerts, and environmental data are obtained from third-party providers such as Open-Meteo and related meteorological data sources.\n\nWhen weather information is requested, certain data such as your approximate IP address or requested coordinates may be processed by these providers according to their own privacy policies.\n\nNimbus Black does not control how third-party providers process data.\n\n## Analytics and Tracking\n\n• No user accounts\n• No advertising networks\n• No behavioral profiling\n• No sale of personal data\n• No third-party tracking libraries\n\nThe application does not intentionally collect personal information for marketing or advertising purposes.\n\n## Your Data\n\nYou remain in control of your data.\n\nRemoving saved locations, clearing browser storage, uninstalling the PWA, or clearing site data will remove locally stored application information.\n\n## Open Source\n\nNimbus Black is an open-source project. The source code is publicly available for inspection, review, and contribution under the project's license.\n\n## Changes\n\nThis Privacy Policy may be updated occasionally to reflect changes in functionality or service providers. Continued use of the application constitutes acceptance of the updated policy.`
     }
   };
 
@@ -662,14 +662,14 @@ const SettingsScreen = ({
   return (
     <motion.div
       key="settings-screen-root"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 15 }}
       transition={{ 
-        duration: 0.2, 
-        ease: "easeOut"
+        duration: 0.25, 
+        ease: [0.25, 0.46, 0.45, 0.94]
       }}
-      className="fixed inset-0 z-[99999] bg-black overflow-hidden"
+      className="fixed inset-0 z-[99999] bg-black overflow-hidden transform-gpu"
     >
       <AnimatePresence mode="sync">
         <motion.div 
@@ -683,9 +683,8 @@ const SettingsScreen = ({
           }}
           exit={{ opacity: 1 }}
           transition={{ 
-            type: "spring", 
-            damping: 30, 
-            stiffness: 280
+            duration: 0.3, 
+            ease: [0.25, 0.46, 0.45, 0.94]
           }}
           className="absolute inset-0 z-[1005] bg-app-bg overflow-y-auto overscroll-contain gpu settings-panel touch-pan-y"
           data-no-swipe
@@ -966,7 +965,8 @@ const SettingsScreen = ({
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 30, stiffness: 280 }}
+            transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
+            style={{ willChange: "transform" }}
             className="fixed inset-0 z-[1010] bg-app-bg overflow-y-auto overscroll-contain sources-page touch-pan-y"
           >
             <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">
@@ -1033,7 +1033,8 @@ const SettingsScreen = ({
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 30, stiffness: 280 }}
+            transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
+            style={{ willChange: "transform" }}
             className="fixed inset-0 z-[1010] bg-app-bg overflow-y-auto overscroll-contain tiles-page touch-pan-y"
           >
             <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">
@@ -1157,10 +1158,10 @@ const SettingsScreen = ({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ 
-              type: "spring",
-              stiffness: 280,
-              damping: 30
+              duration: 0.3, 
+              ease: [0.25, 0.46, 0.45, 0.94]
             }}
+            style={{ willChange: "transform" }}
             className="fixed inset-0 z-[1020] bg-app-bg overflow-y-auto overscroll-contain subview-page touch-pan-y"
           >
             <div className="max-w-[390px] mx-auto min-h-screen px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-32">

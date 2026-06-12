@@ -71,3 +71,28 @@ self.addEventListener("fetch", e => {
       })
   );
 });
+
+// Service Worker pre-fetching strategy for next/previous cities in the swipe sequence
+self.addEventListener("message", e => {
+  if (e.data && e.data.type === "PREFETCH_WEATHER") {
+    const urls = e.data.urls || [];
+    urls.forEach(url => {
+      caches.open(CACHE).then(cache => {
+        cache.match(url).then(cachedResponse => {
+          // If not cached, fetch it from network and store in cache
+          if (!cachedResponse) {
+            console.log("[SW] Pre-fetching adjacent city resource:", url);
+            fetch(url).then(res => {
+              if (res.ok) {
+                cache.put(url, res);
+              }
+            }).catch(err => {
+              console.warn("[SW] SW Pre-fetch failed for URL:", url, err);
+            });
+          }
+        });
+      });
+    });
+  }
+});
+

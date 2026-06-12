@@ -1,121 +1,20 @@
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
+
+# Run and deploy your AI Studio app
+
+This contains everything you need to run your app locally.
+
+View your app in AI Studio: https://ai.studio/apps/42655dd6-4763-475c-a28c-d0f99b200092
+
+## Run Locally
+
+**Prerequisites:**  Node.js
 
 
-# Nimbus Black🌤️
-### *Real-time weather, beautifully simple.* 
-
-![Static Badge](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Static Badge](https://img.shields.io/badge/PWA-Ready-purple?style=flat-square)
-![Static Badge](https://img.shields.io/badge/AQI-India_NAQI-orange?style=flat-square)
-
-Nimbus weather is a clean, dark-themed weather PWA featuring real-time weather, India-standard air quality, and a polished mobile-first UI.
-
----
-
-## ✨ Features
-
-- 🌡️ **Real-time weather** — temperature, humidity, precipitation, visibility
-- 💨 **India NAQI Air Quality** — 6-level scale per CPCB standard with pollutant breakdown (PM2.5, PM10, NO₂, SO₂, O₃, CO)
-- 🌅 **Live sunrise/sunset arc** — animated sun position synced to local timezone
-- 🧭 **Wind compass** — SVG compass with Beaufort scale labels
-- 🏙️ **Multi-city navigation** — swipe left/right to switch cities
-- 📳 **Haptic feedback** — tactile response
-- ⚙️ **Settings** — customizable thresholds for rain and snow alerts
-
-
-
----
-
-## Screenshots
-
-<div align="left">
-
-<img src="screenshots/main.png" width="30%"/>
-&nbsp;
-<img src="screenshots/forecast.png" width="30%"/>
-&nbsp;
-<img src="screenshots/liveradar.png" width="30%"/>
-
-<br/><br/>
-
-<img src="screenshots/aqi.png" width="30%"/>
-&nbsp;
-<img src="screenshots/cards.png" width="30%"/>
-
-
-## 🛠️ Built With
-
-| Tool | Purpose |
-|------|---------|
-| HTML / CSS / Vanilla JS | Core app — no frameworks |
-| Gemini 2.0 | AI-assisted development |
-| Open-Meteo API | Weather + sunrise/sunset data |
-| WAQI API | Air quality (India NAQI) |
-| Chart.js | Forecast charts |
-| Leaflet.js | Weather map tiles |
-
----
-
-## 📡 Data Sources
-
-| Data | Source |
-|------|--------|
-| Weather | [Open-Meteo](https://open-meteo.com) — free, no key needed |
-| Air Quality | [WAQI](https://waqi.info) — India NAQI (CPCB standard) |
-| Sunrise/Sunset | Open-Meteo Daily Forecast |
-| Geolocation | Browser Geolocation API |
-
----
-
-## 🇮🇳 India NAQI Scale
-
-| Range | Category | Color |
-|-------|----------|-------|
-| 0–50 | Good | 🟢 |
-| 51–100 | Satisfactory | 🟡 |
-| 101–200 | Moderate | 🟡 |
-| 201–300 | Poor | 🟠 |
-| 301–400 | Very Poor | 🔴 |
-| 401–500 | Severe | 🟣 |
-
----
-
-## 🚀 Getting Started
-
-This is a single-file static web app. No build tools, no npm, no setup.
-
-**Option 1 — Open directly:**
-```
-Just open index.html in any browser.
-```
-
-**Option 2 — Deploy to Vercel:**
-1. Fork this repo
-2. Go to [vercel.com](https://vercel.com)
-3. Import the repo → leave all settings default → Deploy
-
----
-
-## 📁 Project Structure
-
-```
-vayu-weather/
-│
-└── index.html       # Entire app — HTML + CSS + JS in one file
-└── README.md
-```
-
----
-
-## 🙏 Acknowledgements
-
-- [Open-Meteo](https://open-meteo.com) — for providing free, open-source weather data
-- [WAQI](https://waqi.info) — for global air quality data
-- [CPCB India](https://cpcb.nic.in) — for the National AQI standard
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
-
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

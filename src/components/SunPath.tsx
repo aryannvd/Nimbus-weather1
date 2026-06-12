@@ -25,15 +25,23 @@ const SunriseIcon = ({ className }: { className?: string }) => (
     viewBox="0 0 24 24" 
     fill="none" 
     stroke="currentColor" 
-    strokeWidth="2.8" 
+    strokeWidth="1.6" 
     strokeLinecap="round" 
     strokeLinejoin="round" 
-    className={cn("text-amber-400", className)}
+    className={cn("text-white", className)}
   >
-    <path d="M2 21h20" />
-    <path d="M10 7a5 5 0 0 0 5 5 5 5 0 1 1-5-5Z" />
-    <path d="M18 12V4" />
-    <path d="m15 7 3-3 3 3" />
+    {/* Horizon line */}
+    <line x1="2" y1="18" x2="22" y2="18" />
+    {/* Sun circle (filled) */}
+    <circle cx="12" cy="14" r="4.2" fill="currentColor" />
+    {/* Up Arrow */}
+    <line x1="12" y1="9" x2="12" y2="2" />
+    <polyline points="9,5 12,2 15,5" />
+    {/* Rays */}
+    <line x1="3" y1="14" x2="5.5" y2="14" />
+    <line x1="5.5" y1="7.5" x2="7.5" y2="9.5" />
+    <line x1="18.5" y1="7.5" x2="16.5" y2="9.5" />
+    <line x1="21" y1="14" x2="18.5" y2="14" />
   </svg>
 );
 
@@ -42,21 +50,40 @@ const SunsetIcon = ({ className }: { className?: string }) => (
     viewBox="0 0 24 24" 
     fill="none" 
     stroke="currentColor" 
-    strokeWidth="2.8" 
+    strokeWidth="1.6" 
     strokeLinecap="round" 
     strokeLinejoin="round" 
-    className={cn("text-amber-400/90", className)}
+    className={cn("text-white", className)}
   >
-    <path d="M2 21h20" />
-    <path d="M10 7a5 5 0 0 0 5 5 5 5 0 1 1-5-5Z" />
-    <path d="M18 4v8" />
-    <path d="m15 9 3 3 3-3" />
+    {/* Horizon line */}
+    <line x1="2" y1="18" x2="22" y2="18" />
+    {/* Sun circle (filled) */}
+    <circle cx="12" cy="14" r="4.2" fill="currentColor" />
+    {/* Down Arrow */}
+    <line x1="12" y1="2" x2="12" y2="9" />
+    <polyline points="9,6 12,9 15,6" />
+    {/* Rays */}
+    <line x1="3" y1="14" x2="5.5" y2="14" />
+    <line x1="5.5" y1="7.5" x2="7.5" y2="9.5" />
+    <line x1="18.5" y1="7.5" x2="16.5" y2="9.5" />
+    <line x1="21" y1="14" x2="18.5" y2="14" />
   </svg>
 );
 
+const getCycleIcon = (name: string) => {
+  const cleanName = name.toLowerCase();
+  if (cleanName.includes("sunrise")) {
+    return <SunriseIcon className="w-5 h-5 text-white/95 shrink-0" />;
+  }
+  if (cleanName.includes("sunset")) {
+    return <SunsetIcon className="w-5 h-5 text-white/95 shrink-0" />;
+  }
+  return <SunriseIcon className="w-5 h-5 text-white/95 shrink-0" />;
+};
+
 export default function SunPath({ weather, settings }: SunPathProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const isInView = useInView(containerRef, { once: false, amount: 0.1 });
+  const isInView = useInView(containerRef, { once: true, amount: 0.1 });
   
   // Local state to force re-renders for real-time sun movement
   const [, setTick] = React.useState(0);
@@ -183,33 +210,22 @@ export default function SunPath({ weather, settings }: SunPathProps) {
     cycleStartName = "Sunrise";
     cycleEndName = "Sunset";
   } else {
-    // Night Cycle: Prefer actual Moonrise->Moonset if available, 
-    // but fallback to a pure "Night" cycle (Sunset -> Sunrise next day) if moon data is missing
-    if (moonriseMinutes !== null && moonsetMinutes !== null && moonriseMinutes !== moonsetMinutes) {
-      activeStartMinutes = moonriseMinutes;
-      activeEndMinutes = moonsetMinutes;
-      cycleLabelStart = formatTime(weather?.daily?.moonrise?.[0] || "");
-      cycleLabelEnd = formatTime(weather?.daily?.moonset?.[0] || "");
-      cycleStartName = "Moonrise";
-      cycleEndName = "Moonset";
+    // Night Cycle: Night is from Sunset to next Sunrise
+    if (nowMinutes >= sunsetMinutes) {
+      activeStartMinutes = sunsetMinutes;
+      const tomorrowSunrise = getMinutesFromISO(weather?.daily?.sunrise?.[1] || "");
+      activeEndMinutes = (tomorrowSunrise !== null) ? (tomorrowSunrise + 1440) : (sunriseMinutes + 1440);
+      cycleLabelStart = formatTime(weather?.daily?.sunset?.[0] || "2026-05-19T18:00");
+      cycleLabelEnd = weather?.daily?.sunrise?.[1] ? formatTime(weather.daily.sunrise[1]) : formatTime(weather?.daily?.sunrise?.[0] || "2026-05-19T06:00");
     } else {
-      // Fallback: Night is from Sunset to next Sunrise
-      if (nowMinutes >= sunsetMinutes) {
-        activeStartMinutes = sunsetMinutes;
-        const tomorrowSunrise = getMinutesFromISO(weather?.daily?.sunrise?.[1] || "");
-        activeEndMinutes = (tomorrowSunrise !== null) ? (tomorrowSunrise + 1440) : (sunriseMinutes + 1440);
-        cycleLabelStart = formatTime(weather?.daily?.sunset?.[0] || "2026-05-19T18:00");
-        cycleLabelEnd = weather?.daily?.sunrise?.[1] ? formatTime(weather.daily.sunrise[1]) : formatTime(weather?.daily?.sunrise?.[0] || "2026-05-19T06:00");
-      } else {
-        // After Midnight, before Sunrise
-        activeStartMinutes = sunsetMinutes - 1440;
-        activeEndMinutes = sunriseMinutes;
-        cycleLabelStart = formatTime(weather?.daily?.sunset?.[0] || "2026-05-19T18:00");
-        cycleLabelEnd = formatTime(weather?.daily?.sunrise?.[0] || "2026-05-19T06:00");
-      }
-      cycleStartName = "Sunset";
-      cycleEndName = "Sunrise";
+      // After Midnight, before Sunrise
+      activeStartMinutes = sunsetMinutes - 1440;
+      activeEndMinutes = sunriseMinutes;
+      cycleLabelStart = formatTime(weather?.daily?.sunset?.[0] || "2026-05-19T18:00");
+      cycleLabelEnd = formatTime(weather?.daily?.sunrise?.[0] || "2026-05-19T06:00");
     }
+    cycleStartName = "Sunset";
+    cycleEndName = "Sunrise";
 
     if (activeStartMinutes > activeEndMinutes) {
       if (nowMinutes >= activeStartMinutes) {
@@ -240,7 +256,6 @@ export default function SunPath({ weather, settings }: SunPathProps) {
 
   const [isPressed, setIsPressed] = React.useState(false);
   const [isHovered, setIsHovered] = React.useState(false);
-  const hasAnimatedInRef = React.useRef(false);
 
   // Stats for the live counting capsule
   const [hudHours, setHudHours] = React.useState(0);
@@ -316,13 +331,12 @@ export default function SunPath({ weather, settings }: SunPathProps) {
       ease: [0.25, 1, 0.5, 1]
     });
 
-    // Auto-dismiss HUD after 3 seconds on release
+    // Dismiss HUD instantly on release
+    setShowHUD(false);
     if (hudTimeoutRef.current) {
       clearTimeout(hudTimeoutRef.current);
+      hudTimeoutRef.current = null;
     }
-    hudTimeoutRef.current = setTimeout(() => {
-      setShowHUD(false);
-    }, 3000);
   };
 
   const handlePointerLeave = (e: React.PointerEvent) => {
@@ -343,14 +357,19 @@ export default function SunPath({ weather, settings }: SunPathProps) {
   const rightTrough = `M ${endX} ${horizonY} Q ${width - 35} ${horizonY + troughHeight} ${width - 10} ${horizonY + troughHeight}`;
 
   useEffect(() => {
-    if (isInView && !hasAnimatedInRef.current) {
-      hasAnimatedInRef.current = true;
-      animate(motionProgress, cycleProgress, { 
-        duration: 2.5, 
-        ease: [0.34, 1.56, 0.64, 1] 
+    if (isInView) {
+      // Force start at 0 (the sunrise point) so the icon and active path always draw from the start
+      motionProgress.set(0);
+      const anim = animate(motionProgress, cycleProgress, { 
+        duration: 1.8, 
+        ease: [0.25, 1, 0.5, 1] 
       });
+      return () => anim.stop();
     }
-  }, [isInView, cycleProgress, motionProgress]);
+  }, [weather, cycleProgress, isInView, motionProgress]);
+
+  const leftX = cycleStartName === "Sunrise" ? -33 : -25;
+  const rightX = cycleEndName === "Sunrise" ? (endX - 22) : (endX - 15);
 
   return (
     <div ref={containerRef} className="w-full px-2 mt-8 mb-4 overflow-hidden relative">
@@ -358,15 +377,17 @@ export default function SunPath({ weather, settings }: SunPathProps) {
       <AnimatePresence>
         {showHUD && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.85, y: 15, x: "-50%" }}
+            initial={{ opacity: 0, scale: 0.9, y: 8, x: "-50%" }}
             animate={{ opacity: 1, scale: 1, y: 0, x: "-50%" }}
-            exit={{ opacity: 0, scale: 0.85, y: 10, x: "-50%" }}
-            transition={{ type: "spring", stiffness: 450, damping: 30 }}
-            className="absolute top-[62px] left-1/2 bg-black/95 backdrop-blur-md px-3.5 py-1 rounded-full border border-white/10 flex items-center gap-1.5 pointer-events-none select-none z-10 shadow-[0_4px_16px_rgba(0,0,0,0.5)]"
+            exit={{ opacity: 0, scale: 0.9, y: 4, x: "-50%" }}
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+            className="absolute top-[108px] left-1/2 flex items-center justify-center pointer-events-none select-none z-10 whitespace-nowrap"
           >
-            <span className={cn("w-1.5 h-1.5 rounded-full animate-pulse", isNight ? "bg-blue-400" : "bg-amber-400")} />
-            <span className="text-[11px] font-semibold text-white tracking-tight">
-              {isNight ? `Night: ${hudHours}h ${hudMins}m` : `Daylight: ${hudHours}h ${hudMins}m`}
+            <span className="text-[12px] font-medium text-white/50 tracking-[0.08em] uppercase">
+              {isNight ? "Moonlight: " : "Daylight: "}
+              <span className="text-white font-normal lowercase tracking-tight text-[13.5px]">
+                {hudHours}h {hudMins}m
+              </span>
             </span>
           </motion.div>
         )}
@@ -396,7 +417,7 @@ export default function SunPath({ weather, settings }: SunPathProps) {
             </linearGradient>
 
             {/* Day Glow Filter (Golden Amber glow, unclipped bounds) */}
-            <filter id="sunGlowFilter" x="-30%" y="-30%" width="160%" height="160%">
+            <filter id="sunGlowFilter" filterUnits="userSpaceOnUse" x="-50" y="-50" width={width + 100} height={height + 100}>
               <feGaussianBlur stdDeviation="8" result="blur" />
               <feMerge>
                 <feMergeNode in="blur" />
@@ -405,7 +426,7 @@ export default function SunPath({ weather, settings }: SunPathProps) {
             </filter>
 
             {/* Moon Glow Filter (Lunar Ice Blue glow, unclipped bounds) */}
-            <filter id="moonGlowFilter" x="-30%" y="-30%" width="160%" height="160%">
+            <filter id="moonGlowFilter" filterUnits="userSpaceOnUse" x="-50" y="-50" width={width + 100} height={height + 100}>
               <feGaussianBlur stdDeviation="8" result="blur" />
               <feMerge>
                 <feMergeNode in="blur" />
@@ -426,7 +447,7 @@ export default function SunPath({ weather, settings }: SunPathProps) {
                 transition={
                   isPressed 
                     ? { duration: 0.08 } 
-                    : { delay: 0.55, duration: 0.2 }
+                    : { duration: 0.15 }
                 }
                 fill="black" 
               />
@@ -529,7 +550,7 @@ export default function SunPath({ weather, settings }: SunPathProps) {
               transition={
                 isPressed
                   ? { duration: 0.08, ease: "easeIn" }
-                  : { delay: 0.55, duration: 0.2, ease: "easeOut" }
+                  : { duration: 0.15, ease: "easeOut" }
               }
             >
               <foreignObject x="-14" y="-14" width="28" height="28">
@@ -556,28 +577,20 @@ export default function SunPath({ weather, settings }: SunPathProps) {
           </g>
 
           {/* Labels */}
-          <foreignObject x="-25" y={horizonY + 30} width="105" height="24">
-            <div className="flex items-center justify-end gap-1.5 text-app-text font-bold text-[13px] tracking-tight h-full select-none whitespace-nowrap">
+          <foreignObject x={leftX} y={horizonY + 30} width="115" height="24">
+            <div className="flex items-center justify-end gap-1.5 text-app-text font-semibold text-[13px] tracking-tight h-full select-none whitespace-nowrap">
+              {getCycleIcon(cycleStartName)}
               <span>{cycleLabelStart}</span>
             </div>
           </foreignObject>
 
-          <foreignObject x={endX - 15} y={horizonY + 30} width="105" height="24">
-            <div className="flex items-center justify-start gap-1.5 text-app-text font-bold text-[13px] tracking-tight h-full select-none whitespace-nowrap">
+          <foreignObject x={rightX} y={horizonY + 30} width="115" height="24">
+            <div className="flex items-center justify-start gap-1.5 text-app-text font-semibold text-[13px] tracking-tight h-full select-none whitespace-nowrap">
               <span>{cycleLabelEnd}</span>
+              {getCycleIcon(cycleEndName)}
             </div>
           </foreignObject>
         </svg>
-      </div>
-
-      {/* Daylight Duration labeled directly below the sunrise/sunset values in the tile */}
-      <div className="flex flex-col items-center justify-center mt-2.5 mb-1.5 select-none animate-fadeIn">
-        <span className="text-[11px] font-medium tracking-[0.08em] uppercase text-app-text-dim text-white/45">
-          Daylight Duration
-        </span>
-        <span className="text-[16px] font-light tracking-tight text-white mt-0.5">
-          {daylightDurationStr}
-        </span>
       </div>
     </div>
   );

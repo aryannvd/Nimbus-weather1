@@ -2,6 +2,7 @@ import React from 'react';
 import { WeatherData, Settings } from '../types';
 import { WeatherIcon } from './WeatherIcons';
 import { getWeatherInfo, getHourlyIcon, shouldShowPrecip, getCurrentHourIndex, parseTimeToAbsoluteDate } from '../services/weatherService';
+import { t, translateWmoCode } from '../lib/translations';
 import { formatTemp } from '../lib/units';
 import { motion } from 'motion/react';
 import { format, parseISO } from 'date-fns';
@@ -186,7 +187,7 @@ export function HourlyForecast({ weather, settings }: ForecastProps) {
   return (
     <div className="relative -mx-6 hourly-forecast" data-no-swipe>
       <div className="flex items-center justify-between px-6 mb-3">
-        <span className="text-[11px] font-bold tracking-[0.15em] uppercase text-app-text-dim">Hourly Forecast</span>
+        <span className="text-[11px] font-bold tracking-[0.15em] uppercase text-app-text-dim">{t('hourly_forecast', settings.language)}</span>
       </div>
       <div 
         ref={scrollRef}
@@ -243,8 +244,8 @@ export function HourlyForecast({ weather, settings }: ForecastProps) {
                   />
                 </div>
 
-                <span className="text-[9px] font-bold text-app-text uppercase tracking-wider">
-                  {isSunrise ? 'Sunrise' : 'Sunset'}
+                 <span className="text-[9px] font-bold text-app-text uppercase tracking-wider">
+                  {isSunrise ? t('sunrise', settings.language) : t('sunset', settings.language)}
                 </span>
               </motion.div>
             );
@@ -269,7 +270,7 @@ export function HourlyForecast({ weather, settings }: ForecastProps) {
                 "text-[11px] font-medium tracking-tight whitespace-nowrap",
                 isNow ? "text-app-text" : "text-app-text-dim"
               )}>
-                {isNow ? 'Now' : formatHourlyTimeFromISO(item.rawTimeStr, weather.timezone, settings.timeFormat)}
+                {isNow ? t('now', settings.language) : formatHourlyTimeFromISO(item.rawTimeStr, weather.timezone, settings.timeFormat)}
               </span>
               
               <div className="flex flex-col items-center gap-1">
@@ -309,18 +310,20 @@ export function DailyForecast({ weather, settings }: ForecastProps) {
   return (
     <div className="w-full">
       <div className="flex items-center justify-between px-2 mb-3">
-        <span className="text-[11px] font-bold tracking-[0.08em] uppercase text-app-text-dim">7-Day Forecast</span>
+        <span className="text-[11px] font-bold tracking-[0.08em] uppercase text-app-text-dim">{t('ten_day_forecast', settings.language)}</span>
         <Icons.ChevronRight className="w-4 h-4 text-app-text-dim/50" />
       </div>
       <div className={cn("flex flex-col gap-1 p-2", "bg-app-surface backdrop-blur-2xl border border-app-border rounded-[32px]")}>
         {(weather?.daily?.time || []).map((time, i) => {
           const info = getWeatherInfo(weather.daily.weatherCode?.[i] ?? 0);
           const date = parseISO(time);
+          const localDayName = isNaN(date.getTime()) ? '---' : new Intl.DateTimeFormat(settings.language || 'en', { weekday: 'long' }).format(date);
+          const capitalizedDayName = localDayName.charAt(0).toUpperCase() + localDayName.slice(1);
           
           return (
             <div key={time} className="flex items-center justify-between px-3 py-4 last:border-none">
               <span className="text-[15px] font-medium w-24 text-app-text">
-                {i === 0 ? 'Today' : (isNaN(date.getTime()) ? '---' : format(date, 'EEEE'))}
+                {i === 0 ? t('today', settings.language) : capitalizedDayName}
               </span>
               <div className="flex items-center gap-2 flex-1 justify-center">
                 <WeatherIcon 
@@ -328,7 +331,7 @@ export function DailyForecast({ weather, settings }: ForecastProps) {
                   style={settings.iconStyle} 
                   className="w-6 h-6" 
                 />
-                <span className="text-[13px] text-app-text-dim hidden sm:inline-block truncate max-w-[100px]">{info.label}</span>
+                <span className="text-[13px] text-app-text-dim hidden sm:inline-block truncate max-w-[100px]">{translateWmoCode(weather.daily.weatherCode?.[i] ?? 0, settings.language || 'en')}</span>
               </div>
               <div className="flex items-center gap-4 w-24 justify-end">
                 <span className="text-[15px] font-semibold text-app-text">{formatTemp(weather.daily.temperatureMax?.[i] ?? 0, settings.unitTemp)}°</span>

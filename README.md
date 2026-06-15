@@ -1,11 +1,11 @@
-# Nimbus Black🌤️
+# Overcast ☁️
 ### *Real-time weather, beautifully simple.* 
 
 ![Static Badge](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Static Badge](https://img.shields.io/badge/PWA-Ready-purple?style=flat-square)
 ![Static Badge](https://img.shields.io/badge/AQI-India_NAQI-orange?style=flat-square)
 
-Nimbus weather is a clean, dark-themed weather PWA featuring real-time weather, India-standard air quality, and a polished mobile-first UI.
+Overcast weather is a clean, dark-themed weather PWA featuring real-time weather, India-standard air quality, and a polished mobile-first UI.
 
 ---
 
